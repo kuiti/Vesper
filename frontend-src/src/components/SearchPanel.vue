@@ -39,8 +39,9 @@ export default {
         const res = await api.get('/search/chat', {
           params: { q: this.keyword, limit: 30 }
         })
-        this.results = res.data
+        this.results = Array.isArray(res.data) ? res.data : (res.data.results || [])
       } catch (err) {
+        this.results = []
         console.error('搜索失败', err)
       }
     },

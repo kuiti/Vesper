@@ -15,6 +15,8 @@
           <button @click="openTodoModal" title="待办"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="22" height="22" rx="2"/><path d="M8 12l3 3 5-5"/></svg><span class="nav-label">待办</span></button>
           <button @click="openNoteModal" title="笔记"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="nav-label">笔记</span></button>
           <button @click="showHistoryPanel = true" title="历史"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 12"/><path d="M12 2a10 10 0 0 1 0 20"/></svg><span class="nav-label">历史</span></button>
+          <button @click="openEmotionPanel(false)" title="情感"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><span class="nav-label">情感</span></button>
+          <button @click="showInsightPanel = true" title="洞察"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="nav-label">洞察</span></button>
           <button @click="scrollToBottom(true)" title="回到底部"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg><span class="nav-label">底部</span></button>
         </div>
         <button class="nav-settings" @click="openSettings" title="设置"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg><span class="nav-label">设置</span></button>
@@ -24,13 +26,7 @@
       </nav>
 
       <div class="chat">
-        <div class="chat-top">
-          <button class="btn-more" @click="loadMoreHistory" :disabled="loadingMore || !nextAfterId">
-            {{ loadingMore ? '加载中...' : '更早的消息' }}
-          </button>
-        </div>
-
-        <div class="msg-list" ref="messagesContainer">
+        <div class="msg-list" ref="messagesContainer" @scroll="onChatScroll">
           <div v-if="!messages.length" class="empty-chat">
             <div class="empty-greeting">{{ timeGreeting }}</div>
             <div class="empty-hint">{{ loadError || '我在这里，随时陪你聊天' }}</div>
@@ -48,6 +44,7 @@
               <div class="msg-body">
                 <div v-if="msg.isWeather" class="weather-msg"><WeatherCard :data="msg.weatherData" /></div>
                 <div v-else class="msg-bubble" v-html="safeLinkify(msg.content)" @contextmenu.prevent="openContextMenu($event, msg)" @dblclick="copyMessage(msg)"></div>
+                <span v-if="msg.role === 'assistant' && !msg.isWeather" class="btn-play-msg" @click="playVoice(msg)" title="朗读">声</span>
                 <div class="msg-time">{{ formatTime(msg.timestamp) }}</div>
               </div>
             </div>
@@ -66,11 +63,12 @@
         <div class="chat-input">
           <div v-if="quoteMsg" class="quote-bar">{{ quoteMsg.content }}<button @click="quoteMsg=null">✕</button></div>
           <div class="input-row">
+            <button class="btn-voice-toggle" @click="voiceMode=!voiceMode" :title="voiceMode?'键盘输入':'语音输入'">{{ voiceMode ? '⌨' : '🎤' }}</button>
             <button class="emoji-btn" @click="showEmojiPicker=!showEmojiPicker" title="颜文字">^_^</button>
             <div v-if="showEmojiPicker" class="kaomoji-picker">
               <span v-for="k in kaomojis" :key="k" @click="inputText+=k;showEmojiPicker=false;$refs.inputEl.focus()" class="kaomoji-item">{{ k }}</span>
             </div>
-            <textarea
+            <textarea v-if="!voiceMode"
               ref="inputEl"
               v-model="inputText"
               @keydown.enter.exact="sendMessage"
@@ -80,9 +78,14 @@
               rows="1"
               :disabled="isStreaming"
             ></textarea>
-            <button class="btn-send" @click="sendMessage" :disabled="isStreaming || !inputText.trim()">发送</button>
+            <button v-if="voiceMode" class="btn-hold-speak" @mousedown="startVoiceInput" @mouseup="stopRecording" @mouseleave="stopRecording" @touchstart.prevent="startVoiceInput" @touchend.prevent="stopRecording">
+              {{ isRecording ? '松开 结束' : '按住 说话' }}
+            </button>
+            <button v-if="!voiceMode" class="btn-send" @click="sendMessage" :disabled="isStreaming || !inputText.trim()">发送</button>
           </div>
         </div>
+
+        <audio ref="audioEl" style="display:none"></audio>
         <!-- 右键菜单 -->
         <div v-if="showContextMenu" class="context-menu" :style="{left:ctxMenuX+'px',top:ctxMenuY+'px'}" @click.stop>
           <div class="ctx-item" @click="copyMessage(ctxTargetMsg)">复制</div>
@@ -108,208 +111,30 @@
     <div v-if="showHistoryPanel" class="modal-overlay" @click.self="showHistoryPanel=false">
       <div class="modal small"><div class="modal-hd"><h3>历史回顾</h3><button @click="showHistoryPanel=false">✕</button></div><div class="modal-bd"><HistoryPanel /></div></div>
     </div>
-    <div v-if="showSettingsModal" class="modal-overlay" @click.self="closeSettingsModal">
-      <div class="settings-panel" ref="settingsPanel">
-        <div class="settings-titlebar" @mousedown="startDrag">
-          <span>设置</span>
-          <button @click="closeSettingsModal">✕</button>
-        </div>
-        <div class="settings-body">
-          <div class="settings-nav">
-            <div v-for="tab in settingsTabs" :key="tab.id"
-                 :class="['nav-item', { active: settingsTab === tab.id }]"
-                 @click="settingsTab = tab.id">
-              <span class="nav-icon"><svg v-if="tab.icon==='api'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 12H8"/><path d="M12 8v8"/></svg><svg v-else-if="tab.icon==='role'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/></svg><svg v-else-if="tab.icon==='voice'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg><svg v-else-if="tab.icon==='appr'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="10"/></svg><svg v-else-if="tab.icon==='data'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="22" height="22" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></span>
-              <span class="nav-label">{{ tab.label }}</span>
-            </div>
-          </div>
-          <div class="settings-content">
-            <!-- API -->
-            <div v-if="settingsTab === 'api'" class="tab-content">
-              <div class="card"><div class="card-title">AI 接口配置</div><div class="card-body">
-                <div class="field"><label>提供商</label><select v-model="apiProviderLocal" @change="onProviderChange"><option value="deepseek">DeepSeek</option><option value="qwen">通义千问</option><option value="moonshot">Moonshot</option><option value="zhipu">智谱 GLM</option><option value="openai">OpenAI</option><option value="custom">自定义</option></select></div>
-                <div class="field"><label>API 地址</label><input v-model="apiBaseUrlLocal" placeholder="https://api.deepseek.com/v1"></div>
-                <div class="field"><label>模型</label>
-                  <div class="model-row">
-                    <select v-if="availableModels.length" v-model="apiModelLocal" class="model-select">
-                      <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
-                    </select>
-                    <input v-else v-model="apiModelLocal" placeholder="deepseek-chat" class="model-input">
-                    <button class="btn-s" @click="fetchModels" :disabled="loadingModels">{{ loadingModels ? '...' : '获取模型' }}</button>
-                  </div>
-                </div>
-                <div class="field"><label>API Key</label><input type="password" v-model="apiKeyLocal" placeholder="sk-..."></div>
-                <div class="prompt-actions"><button class="btn" @click="saveApiConfig">保存</button><span v-if="apiConfigSaved" class="saved-hint">已保存</span></div>
-                <div class="test-row"><span>连通性</span><button class="btn-s" @click="testApiConnection" :disabled="testing.ds">{{ testing.ds ? '...' : '测试' }}</button><span :class="testing.dsStatus">{{ testing.dsMsg }}</span></div>
-              </div></div>
-              <div class="card"><div class="card-title">高德地图 API</div><div class="card-body">
-                <div class="api-row"><input type="password" v-model="amapKeyLocal" @change="updateGlobalConfig('amap_key', amapKeyLocal)" placeholder="用于天气和IP定位"><button class="btn" @click="saveApiKey">保存</button></div>
-                <div class="test-row"><span>天气</span><button class="btn-s" @click="testWeather" :disabled="testing.wt">{{ testing.wt ? '...' : '测试' }}</button><span :class="testing.wtStatus">{{ testing.wtMsg }}</span></div>
-                <div class="test-row"><span>定位</span><button class="btn-s" @click="locateAndFill" :disabled="locating">{{ locating ? '获取中...' : '获取定位' }}</button><span :class="testing.ipStatus" style="font-size:11px">{{ testing.ipMsg }}</span></div>
-              </div></div>
-              <div class="card"><div class="card-title">联网搜索</div><div class="card-body">
-                <label class="switch-label"><input type="checkbox" v-model="enableSearchLocal" @change="updateGlobalConfig('enable_web_search', enableSearchLocal)"> DuckDuckGo 关键词匹配</label>
-                <div class="test-row"><span>连通性</span><button class="btn-s" @click="testSearch" :disabled="testing.se">{{ testing.se ? '...' : '测试' }}</button><span :class="testing.seStatus">{{ testing.seMsg }}</span></div>
-              </div></div>
-              <div class="card"><div class="card-title">定位设置</div><div class="card-body">
-                <div class="ip-status" v-if="ipCity">{{ ipCity }}</div>
-                <div class="btn-row"><button class="btn-s" @click="locateAndFill" :disabled="locating">IP 定位</button><button class="btn-s" @click="preciseLocate" :disabled="locating">精确定位</button></div>
-                <div class="loc-hint">精确定位使用浏览器 WiFi/GPS，首次需授权</div>
-                <div class="btn-row" style="margin-top:8px"><button class="btn-s" @click="resetLocationPermission">重新询问定位权限</button></div>
-                <div class="loc-row"><select v-model="selectedProvince" @change="onProvinceChange"><option value="">省份</option><option v-for="p in provinces" :key="p.adcode" :value="p.adcode">{{ p.name }}</option></select><select v-model="selectedCity" :disabled="!selectedProvince"><option value="">城市</option><option v-for="c in cities" :key="c.adcode" :value="c.adcode">{{ c.name }}</option></select><button class="btn-s" @click="savePreciseCity">保存</button></div>
-              </div></div>
-            </div>
-
-            <!-- 角色 -->
-            <div v-if="settingsTab === 'role'" class="tab-content">
-              <div class="card"><div class="card-title">基本信息</div><div class="card-body">
-                <div class="avatar-section">
-                  <div class="avatar-preview">
-                    <img :src="assistantAvatarUrl" class="avatar-img" />
-                    <span class="avatar-label">AI 头像</span>
-                  </div>
-                  <div class="avatar-actions">
-                    <button class="btn-s" @click="$refs.aiAvatarInput.click()">本地上传</button>
-                    <input type="file" ref="aiAvatarInput" accept="image/*" style="display:none" @change="uploadAvatar('assistant', $event)">
-                    <div class="url-row">
-                      <input v-model="aiAvatarUrl" placeholder="或输入图片URL" class="url-input">
-                      <button class="btn-s" @click="uploadAvatarByUrl('assistant')" :disabled="!aiAvatarUrl">导入</button>
-                    </div>
-                  </div>
-                </div>
-                <div class="avatar-section">
-                  <div class="avatar-preview">
-                    <img :src="userAvatarUrl" class="avatar-img" />
-                    <span class="avatar-label">用户头像</span>
-                  </div>
-                  <div class="avatar-actions">
-                    <button class="btn-s" @click="$refs.userAvatarInput.click()">本地上传</button>
-                    <input type="file" ref="userAvatarInput" accept="image/*" style="display:none" @change="uploadAvatar('user', $event)">
-                    <div class="url-row">
-                      <input v-model="userAvatarUrlInput" placeholder="或输入图片URL" class="url-input">
-                      <button class="btn-s" @click="uploadAvatarByUrl('user')" :disabled="!userAvatarUrlInput">导入</button>
-                    </div>
-                  </div>
-                </div>
-                <div class="card"><div class="card-title">关系状态</div><div class="card-body">
-                  <div class="relationship-bars">
-                    <div class="rel-item">
-                      <span class="rel-label">好感度</span>
-                      <div class="rel-bar"><div class="rel-fill affection" :style="{width: relationship.affection + '%'}"></div></div>
-                      <span class="rel-value">{{ relationship.affection }}</span>
-                    </div>
-                    <div class="rel-item">
-                      <span class="rel-label">信任度</span>
-                      <div class="rel-bar"><div class="rel-fill trust" :style="{width: relationship.trust + '%'}"></div></div>
-                      <span class="rel-value">{{ relationship.trust }}</span>
-                    </div>
-                    <div class="rel-item">
-                      <span class="rel-label">AI 状态</span>
-                      <span class="ai-emotion-tag">{{ relationship.ai_emotion_label }}</span>
-                      <span class="ai-emotion-desc">{{ relationship.ai_emotion_description }}</span>
-                    </div>
-                  </div>
-                </div></div>
-                <div class="field"><label>AI 名称</label><input v-model="aiNameLocal" @change="updateGlobalConfig('ai_name', aiNameLocal)"></div>
-                <div class="field"><label>你的称呼</label><input v-model="userNameLocal" @change="updateGlobalConfig('user_name', userNameLocal)"></div>
-              </div></div>
-              <div class="card"><div class="card-title">回复风格</div><div class="card-body">
-                <div class="field"><label>语气</label><select v-model="toneLocal" @change="saveTone"><option value="冷静">冷静</option><option value="活泼">活泼</option><option value="温柔">温柔</option><option value="毒舌">毒舌</option><option value="傲娇">傲娇</option></select></div>
-                <div class="field"><label>长度</label><select v-model="lengthLocal" @change="updateGlobalConfig('length_level', lengthLocal)"><option value="极短">极短</option><option value="短">短</option><option value="中等">中等</option><option value="长">长</option><option value="详细">详细</option></select></div>
-                <div class="field"><label>回忆</label><select v-model="recallLocal" @change="updateGlobalConfig('recall_past', recallLocal)"><option value="从不">从不</option><option value="被动">被动</option></select></div>
-              </div></div>
-              <div class="card card-grow"><div class="card-title">自定义人设提示词</div><div class="card-body card-body-grow"><textarea v-model="customPromptLocal" placeholder="留空则使用默认人设..." class="role-textarea"></textarea><div class="prompt-actions"><button class="btn" @click="saveCustomPrompt">保存</button><span v-if="promptSaved" class="saved-hint">已保存</span></div></div></div>
-              <div class="card"><div class="card-title">角色预设</div><div class="card-body">
-                <div class="api-row"><input v-model="newPresetName" placeholder="预设名称"><button class="btn-s" @click="savePreset" :disabled="!newPresetName">保存当前</button></div>
-                <div v-for="(data, name) in presets" :key="name" class="preset-row"><span>{{ name }}</span><div class="preset-actions"><button class="btn-s" @click="loadPreset(name)">加载</button><button class="btn-s btn-danger" @click="deletePreset(name)">删除</button></div></div>
-                <div v-if="Object.keys(presets).length===0" class="empty-hint">暂无预设</div>
-              </div></div>
-            </div>
-
-            <!-- 外观 -->
-            <div v-if="settingsTab === 'appearance'" class="tab-content">
-              <div class="card"><div class="card-title">主题</div><div class="card-body">
-                <div class="theme-toggle">
-                  <button :class="['theme-btn', { active: themeLocal==='dark' }]" @click="setTheme('dark')">🌙 暗色</button>
-                  <button :class="['theme-btn', { active: themeLocal==='light' }]" @click="setTheme('light')">☀ 亮色</button>
-                  <button :class="['theme-btn', { active: themeLocal==='sakura' }]" @click="setTheme('sakura')">🌸 樱花粉</button>
-                  <button :class="['theme-btn', { active: themeLocal==='vesper' }]" @click="setTheme('vesper')">✨ 夕语</button>
-                </div>
-              </div></div>
-              <div class="card"><div class="card-title">配色</div><div class="card-body">
-                <div class="color-list"><div v-for="c in colorFields" :key="c.key" class="color-row">
-                  <span class="color-swatch" :style="{background: colors[c.key]}"></span>
-                  <span class="color-label">{{ c.label }}</span>
-                  <input type="color" v-model="colors[c.key]" @change="updateGlobalConfig(c.configKey, colors[c.key])" class="color-pick">
-                  <input :value="colors[c.key]" @change="updateColorField(c.key, $event.target.value)" class="color-hex" placeholder="#000000" maxlength="7">
-                </div></div>
-                <div class="preset-bar">
-                  <button class="btn-s" @click="applyColorPreset('sakura')">夕语樱</button>
-                  <button class="btn-s" @click="applyColorPreset('default')">默认蓝</button>
-                  <button class="btn-s" @click="applyColorPreset('wechat')">微信绿</button>
-                  <button class="btn-s" @click="applyColorPreset('teal')">青蓝</button>
-                  <button class="btn-s" @click="applyColorPreset('warm')">暖橙</button>
-                  <button class="btn-s" @click="newPresetName='';saveColorPreset()">+ 保存当前</button>
-                </div>
-              </div></div>
-              <div class="card"><div class="card-title">聊天背景</div><div class="card-body">
-                <div class="bg-row"><input v-model="chatBgImage" @change="updateGlobalConfig('chat_bg_image', chatBgImage)" placeholder="图片URL（留空为纯色）"><button class="btn-s" @click="uploadBg">上传</button><button class="btn-s" @click="chatBgImage='';updateGlobalConfig('chat_bg_image','')">清除</button></div>
-                <input type="file" ref="bgInput" accept="image/*" style="display:none" @change="onBgFilePicked">
-              </div></div>
-            </div>
-
-            <!-- 数据 -->
-            <div v-if="settingsTab === 'data'" class="tab-content">
-              <div class="stats-bar">
-                <div class="stat-item"><span class="stat-val">{{ totalMessages }}</span><span class="stat-lbl">消息</span></div>
-                <div class="stat-sep"></div>
-                <div class="stat-item"><span class="stat-val">{{ conversationDays }}</span><span class="stat-lbl">对话日</span></div>
-              </div>
-              <div class="card"><div class="card-title">情绪趋势（7天）</div><div class="card-body">
-                <div class="emotion-chart">
-                  <div v-for="d in emotionTrend" :key="d.date" class="emotion-bar-group">
-                    <div class="emotion-bar" :style="{height: Math.abs(d.score) * 2 + 'px', background: d.score >= 0 ? '#4caf50' : '#e74c3c'}"></div>
-                    <span class="emotion-date">{{ d.date.slice(5) }}</span>
-                  </div>
-                </div>
-                <div v-if="emotionTrend.length === 0" class="empty-hint">暂无情绪数据</div>
-              </div></div>
-              <div class="card"><div class="card-body"><SearchPanel /></div></div>
-              <div class="card"><div class="card-body"><MemoryPanel /></div></div>
-              <div class="card"><div class="card-body"><RAGPanel /></div></div>
-              <div class="card"><div class="card-body"><ChatManagePanel @changed="onDataChanged" /></div></div>
-              <div class="card"><div class="card-body"><MigratePanel /></div></div>
-              <div class="card"><div class="card-title">知识库</div><div class="card-body"><KnowledgePanel /></div></div>
-              <div class="card"><div class="card-body"><button class="btn" @click="exportChat">导出聊天记录 (TXT)</button></div></div>
-            </div>
-
-            <!-- 通知 -->
-            <div v-if="settingsTab === 'voice'" class="tab-content">
-              <div class="card"><div class="card-title">提醒方式</div><div class="card-body">
-                <label class="switch-label"><input type="checkbox" v-model="useSystemNotification" @change="updateGlobalConfig('use_system_notification', useSystemNotification)"> 使用 Windows 系统通知</label>
-                <div class="loc-hint">开启后提醒将通过系统通知中心推送，软件内不弹窗</div>
-                <div class="field" v-if="useSystemNotification" style="margin-top:12px">
-                  <label>通知风格</label>
-                  <select v-model="notificationStyle" @change="updateGlobalConfig('notification_style', notificationStyle)">
-                    <option value="warm">温和亲切</option>
-                    <option value="casual">随意自然</option>
-                    <option value="professional">专业简洁</option>
-                  </select>
-                </div>
-              </div></div>
-              <div class="card"><div class="card-title">天气关怀</div><div class="card-body">
-                <label class="switch-label"><input type="checkbox" v-model="useWeatherCare" @change="updateGlobalConfig('use_weather_care', useWeatherCare)"> 每日天气推送</label>
-                <div class="loc-hint">每天 7:00、12:00、19:00 自动推送天气信息</div>
-              </div></div>
-              <div class="card"><div class="card-title">托盘行为</div><div class="card-body">
-                <label class="switch-label"><input type="checkbox" v-model="showTrayNotification" @change="updateGlobalConfig('show_tray_notification', showTrayNotification)"> 关闭窗口时显示托盘提示</label>
-              </div></div>
-            </div>
-
-          </div>
-        </div>
-      </div>
+    <div v-if="showEmotionPanel" class="modal-overlay" @click.self="closeEmotionPanel">
+      <div class="modal small"><div class="modal-hd"><h3>情感空间</h3><button @click="closeEmotionPanel">✕</button></div><div class="modal-bd"><EmotionPanel /></div></div>
     </div>
+    <div v-if="showInsightPanel" class="modal-overlay" @click.self="showInsightPanel=false">
+      <div class="modal small"><div class="modal-hd"><h3>AI 洞察</h3><button @click="showInsightPanel=false">✕</button></div><div class="modal-bd"><InsightPanel /></div></div>
+    </div>
+    <SettingsPanel
+      :show="showSettingsModal"
+      :settings="allSettings"
+      :themeLocal="themeLocal"
+      :ipCity="ipCity"
+      :relationship="relationship"
+      :emotionTrend="emotionTrend"
+      :totalMessages="totalMessages"
+      :conversationDays="conversationDays"
+      :assistantAvatarUrl="assistantAvatarUrl"
+      :userAvatarUrl="userAvatarUrl"
+      @close="showSettingsModal = false"
+      @config-changed="onSettingsChanged"
+      @open-emotion-panel="openEmotionPanel"
+      @export-chat="exportChat"
+      @data-changed="onDataChanged"
+      @avatar-updated="onAvatarUpdated"
+    />
 
     <!-- 确认弹窗 -->
     <div v-if="confirmDialog.show" class="modal-overlay" @click.self="confirmDialog.show=false">
@@ -359,14 +184,17 @@ import MigratePanel from './components/MigratePanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import KnowledgePanel from './components/KnowledgePanel.vue'
 import WeatherCard from './components/WeatherCard.vue'
+import EmotionPanel from './components/EmotionPanel.vue'
+import InsightPanel from './components/InsightPanel.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
 
 const DEFAULT_AVATAR = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="%234e89ae" stroke-width="1.5"%3E%3Cpath d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"%3E%3C/path%3E%3Ccircle cx="12" cy="7" r="4"%3E%3C/circle%3E%3C/svg%3E'
 
 export default {
-  components: { TodoList, NoteList, CountdownList, ReminderList, MemoryPanel, SearchPanel, ChatManagePanel, RAGPanel, MigratePanel, HistoryPanel, KnowledgePanel, WeatherCard },
+  components: { TodoList, NoteList, CountdownList, ReminderList, MemoryPanel, SearchPanel, ChatManagePanel, RAGPanel, MigratePanel, HistoryPanel, KnowledgePanel, WeatherCard, EmotionPanel, InsightPanel, SettingsPanel },
   data() {
     return {
-      showTodoModal: false, showNoteModal: false, showCountdownModal: false, showReminderModal: false, showHistoryPanel: false, showSettingsModal: false,
+      allSettings: {}, showTodoModal: false, showNoteModal: false, showCountdownModal: false, showReminderModal: false, showHistoryPanel: false, showEmotionPanel: false, showInsightPanel: false, showSettingsModal: false,
       currentTheme: 'dark', messages: [], inputText: '', ws: null, isStreaming: false, wsReady: false,
       pendingReply: '', schedId: null, _currentReplyLen: 0,
       wsReconnectAttempts: 0, _reconnectTimer: null, userScrolledUp: false, lastScrollTop: 0,
@@ -384,15 +212,19 @@ export default {
       availableModels: [], loadingModels: false,
       testing: { ds: false, dsStatus: '', dsMsg: '', wt: false, wtStatus: '', wtMsg: '', se: false, seStatus: '', seMsg: '', ip: false, ipStatus: '', ipMsg: '' },
       settingsTab: 'api', locating: false,
-      isRecording: false, mediaRecorder: null, audioChunks: [], sidebarCollapsed: true,
+      isRecording: false, mediaRecorder: null, audioChunks: [], voiceMode: false, sidebarCollapsed: true,
       confirmDialog: { show: false, message: '', resolve: null },
+      ttsEnabled: true, sttEnabled: true, autoPlayVoice: false,
       relationship: { affection: 30, trust: 50, ai_emotion: 'neutral', ai_emotion_label: '平静', ai_emotion_description: '正常状态' },
       emotionTrend: [],
       useSystemNotification: false, notificationStyle: 'warm', useWeatherCare: true, showTrayNotification: true,
+      relationshipMode: 'fast', relModeMsg: '', sentenceMode: 'auto',
+      proactiveFreq: 'medium', proactiveStyle: 'warm',
+      _twQueue: [], _twActive: false, _twTimer: null,
       settingsTabs: [
         { id: 'api', icon: 'api', label: 'API' },
         { id: 'role', icon: 'role', label: '角色' },
-        { id: 'voice', icon: 'voice', label: '通知' },
+        { id: 'voice', icon: 'voice', label: '语音' },
         { id: 'appearance', icon: 'appr', label: '外观' },
         { id: 'data', icon: 'data', label: '数据' }
       ]
@@ -402,9 +234,9 @@ export default {
   computed: {
     colorVariables() { let bg = 'none'; if (this.chatBgImage && /^https?:\/\/[^\s'"()]+\.(jpg|jpeg|png|webp|gif)(\?[^\s'"()]*)?$/i.test(this.chatBgImage)) { bg = `url("${this.chatBgImage}")` }; return { '--p': this.colors.primary, '--bg': this.colors.bg, '--sb': this.colors.sidebarBg, '--cb': this.colors.chatBg, '--ub': this.colors.userBubble, '--ab': this.colors.aiBubble, '--chat-bg-img': bg } },
     locationText() { const c = this.ipCityShort; if (c && c.length > 0 && c !== '[]' && c !== '无法获取定位') return c; return '无法获取定位' },
-    modalOpen() { return this.showSettingsModal || this.showTodoModal || this.showNoteModal || this.showCountdownModal || this.showReminderModal || this.showHistoryPanel },
+    modalOpen() { return this.showSettingsModal || this.showTodoModal || this.showNoteModal || this.showCountdownModal || this.showReminderModal || this.showHistoryPanel || this.showEmotionPanel || this.showInsightPanel },
     timeGreeting() { const h = new Date().getHours(); const name = this.userNameLocal || ''; const greet = h < 6 ? '夜深了' : h < 9 ? '早上好' : h < 12 ? '上午好' : h < 14 ? '中午好' : h < 18 ? '下午好' : h < 22 ? '晚上好' : '夜深了'; return name ? greet + '，' + name : greet },
-    chatSuggestions() { return ['今天天气怎么样', '帮我记个待办', '陪我聊聊天'] },
+    chatSuggestions() { const s = ['今天天气怎么样', '帮我记个待办', '陪我聊聊天']; if (this.ttsEnabled) s.push('说句话给我听'); return s },
     colorFields() { return [
       { key: 'primary', label: '主色调', configKey: 'primary_color' },
       { key: 'bg', label: '背景', configKey: 'bg_color' },
@@ -414,31 +246,80 @@ export default {
       { key: 'aiBubble', label: 'AI气泡', configKey: 'ai_bubble' }
     ]}
   },
-  async mounted() { this.loadTheme(); await this.loadAllSettings(); this.loadAvatars(); this.loadHistory(); this.connectWebSocket(); this.loadIpLocation(); this.loadRelationship(); this.loadEmotionTrend(); this._locationTimer = setInterval(() => { if (document.visibilityState === 'visible') this.loadIpLocation() }, 600000); if (Notification.permission === 'default') Notification.requestPermission(); this._keydownHandler = (e) => { if (e.key === 'Escape') { this.showContextMenu = false; this.showEmojiPicker = false; this.showSettingsModal = false; this.showTodoModal = false; this.showNoteModal = false; this.showCountdownModal = false; this.showReminderModal = false; this.showHistoryPanel = false } }; document.addEventListener('keydown', this._keydownHandler); this._wheelHandler = (e) => { if (e.ctrlKey) { e.preventDefault(); this.adjustFontSize(e.deltaY < 0 ? 1 : -1) } }; document.addEventListener('wheel', this._wheelHandler, { passive: false }); this.$nextTick(() => { const el = this.$refs.messagesContainer; if (el) el.addEventListener('scroll', () => { const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-this.lastScrollTop = el.scrollTop
-this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.date-sep'); let visible = ''; for (const s of seps) { if (s.getBoundingClientRect().top > el.getBoundingClientRect().top + 20) break; visible = s.textContent }; this.floatingDate = visible }) }) },
-  beforeUnmount() { if (this.ws) this.ws.close(); if (this._locationTimer) clearInterval(this._locationTimer); if (this._reconnectTimer) clearTimeout(this._reconnectTimer); if (this._keydownHandler) document.removeEventListener('keydown', this._keydownHandler); if (this._wheelHandler) document.removeEventListener('wheel', this._wheelHandler) },
+  async mounted() { await this.loadAllSettings(); this.loadAvatars(); this.loadHistory(); this.connectWebSocket(); this.loadIpLocation(); this.loadRelationship(); this.loadEmotionTrend(); this._locationTimer = setInterval(() => { if (document.visibilityState === 'visible') this.loadIpLocation() }, 600000); if (Notification.permission === 'default') Notification.requestPermission(); this._keydownHandler = (e) => { if (e.key === 'Escape') { this.showContextMenu = false; this.showEmojiPicker = false; this.showSettingsModal = false; this.showTodoModal = false; this.showNoteModal = false; this.showCountdownModal = false; this.showReminderModal = false; this.showHistoryPanel = false } }; document.addEventListener('keydown', this._keydownHandler); this._wheelHandler = (e) => { if (e.ctrlKey) { e.preventDefault(); this.adjustFontSize(e.deltaY < 0 ? 1 : -1) } }; document.addEventListener('wheel', this._wheelHandler, { passive: false }); this.$nextTick(() => { const el = this.$refs.messagesContainer; if (el) el.addEventListener('scroll', () => { const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight; this.lastScrollTop = el.scrollTop; this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.date-sep'); let visible = ''; for (const s of seps) { if (s.getBoundingClientRect().top > el.getBoundingClientRect().top + 20) break; visible = s.textContent } this.floatingDate = visible }) }) },
+  beforeUnmount() { if (this.ws) this.ws.close(); if (this._locationTimer) clearInterval(this._locationTimer); if (this._reconnectTimer) clearTimeout(this._reconnectTimer); if (this._streamTimeout) clearTimeout(this._streamTimeout); if (this.schedId) clearTimeout(this.schedId); if (this._twTimer) clearTimeout(this._twTimer); if (this._keydownHandler) document.removeEventListener('keydown', this._keydownHandler); if (this._wheelHandler) document.removeEventListener('wheel', this._wheelHandler) },
   methods: {
     async loadTheme() {
       try { const res = await api.get('/settings/'); this.themeLocal = res.data.theme || 'dark'; this.currentTheme = this.themeLocal; document.documentElement.setAttribute('data-theme', this.currentTheme) } catch (err) {}
     },
     async loadAllSettings() {
-      try { const res = await api.get('/settings/'); this.themeLocal = res.data.theme || 'dark'; this.currentTheme = this.themeLocal; document.documentElement.setAttribute('data-theme', this.currentTheme); this.enableSearchLocal = res.data.enable_web_search !== false; this.aiNameLocal = res.data.ai_name || '夕语'; this.userNameLocal = res.data.user_name || ''; this.toneLocal = res.data.personality_tone || '冷静'; this.lengthLocal = res.data.length_level || '短'; this.recallLocal = res.data.recall_past || '从不'; this.customPromptLocal = res.data.custom_system_prompt || ''; this.chatBgImage = res.data.chat_bg_image || ''; this.chatFontSize = res.data.chat_font_size || 14; this.apiBaseUrlLocal = res.data.api_base_url || 'https://api.deepseek.com/v1'; this.apiModelLocal = res.data.api_model || 'deepseek-chat';
+      try { const res = await api.get('/settings/'); this.allSettings = res.data; this.themeLocal = res.data.theme || 'dark'; this.currentTheme = this.themeLocal; document.documentElement.setAttribute('data-theme', this.currentTheme); this.enableSearchLocal = res.data.enable_web_search !== false; this.aiNameLocal = res.data.ai_name || '夕语'; this.userNameLocal = res.data.user_name || ''; this.toneLocal = res.data.personality_tone || '冷静'; this.lengthLocal = res.data.length_level || '短'; this.recallLocal = res.data.recall_past || '从不'; this.customPromptLocal = res.data.custom_system_prompt || ''; this.chatBgImage = res.data.chat_bg_image || ''; this.chatFontSize = res.data.chat_font_size || 14; this.apiBaseUrlLocal = res.data.api_base_url || 'https://api.deepseek.com/v1'; this.apiModelLocal = res.data.api_model || 'deepseek-chat';
       if (res.data.precise_city) { this.ipCityShort = res.data.precise_city; this.ipCity = res.data.precise_city }
+      if (res.data.tts_enabled !== undefined) this.ttsEnabled = res.data.tts_enabled
+      if (res.data.stt_enabled !== undefined) this.sttEnabled = res.data.stt_enabled
+      if (res.data.auto_play_voice !== undefined) this.autoPlayVoice = res.data.auto_play_voice
       if (res.data.use_system_notification !== undefined) this.useSystemNotification = res.data.use_system_notification
       if (res.data.notification_style) this.notificationStyle = res.data.notification_style
       if (res.data.use_weather_care !== undefined) this.useWeatherCare = res.data.use_weather_care
       if (res.data.show_tray_notification !== undefined) this.showTrayNotification = res.data.show_tray_notification
+      if (res.data.relationship_mode) this.relationshipMode = res.data.relationship_mode
+      if (res.data.sentence_mode) this.sentenceMode = res.data.sentence_mode
+      if (res.data.proactive_frequency) this.proactiveFreq = res.data.proactive_frequency
+      if (res.data.proactive_style) this.proactiveStyle = res.data.proactive_style
       this.colors = { primary: res.data.primary_color || '#e8929b', bg: res.data.bg_color || '#1a1418', sidebarBg: res.data.sidebar_bg || '#221a1f', chatBg: res.data.chat_bg || '#1a1418', userBubble: res.data.user_bubble || '#3d2b3a', aiBubble: res.data.ai_bubble || '#251e25' } } catch (err) { console.error(err) }
     },
     async updateGlobalConfig(key, value) { try { await api.post('/settings/', { key, value }); this.saveError = ''; if (key === 'theme') { this.currentTheme = value; document.documentElement.setAttribute('data-theme', value) } } catch (err) { this.saveError = '保存失败: ' + key; setTimeout(() => { this.saveError = '' }, 3000); console.error(err) } },
-    async saveApiKey() { await this.updateGlobalConfig('api_key', this.apiKeyLocal); this.apiKeySaved = true; setTimeout(() => { this.apiKeySaved = false }, 2000) },
-    onProviderChange() { const p = { deepseek: { url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }, qwen: { url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' }, moonshot: { url: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' }, zhipu: { url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' }, openai: { url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' }, custom: { url: '', model: '' } }[this.apiProviderLocal]; if (p) { this.apiBaseUrlLocal = p.url; this.apiModelLocal = p.model; this.availableModels = [] } },
-    async saveApiConfig() { await api.post('/settings/', { key: 'api_base_url', value: this.apiBaseUrlLocal }); await api.post('/settings/', { key: 'api_model', value: this.apiModelLocal }); await this.updateGlobalConfig('api_key', this.apiKeyLocal); this.apiConfigSaved = true; setTimeout(() => { this.apiConfigSaved = false }, 2000); this.fetchModels() },
+    async onSettingsChanged(key, value) {
+      try { await api.post('/settings/', { key, value }) } catch (e) { console.error(e) }
+      this.allSettings[key] = value
+      if (key === 'theme') { this.currentTheme = value; this.themeLocal = value; document.documentElement.setAttribute('data-theme', value) }
+      else if (key === 'precise_city') { this.ipCityShort = value; this.ipCity = value }
+      else if (key === 'ai_name') this.aiNameLocal = value
+      else if (key === 'user_name') this.userNameLocal = value
+      else if (key === 'sentence_mode') this.sentenceMode = value
+      else if (key === 'proactive_frequency') this.proactiveFreq = value
+      else if (key === 'proactive_style') this.proactiveStyle = value
+      else if (key === 'primary_color') this.colors.primary = value
+      else if (key === 'bg_color') this.colors.bg = value
+      else if (key === 'sidebar_bg') this.colors.sidebarBg = value
+      else if (key === 'chat_bg') this.colors.chatBg = value
+      else if (key === 'user_bubble') this.colors.userBubble = value
+      else if (key === 'ai_bubble') this.colors.aiBubble = value
+      else if (key === 'chat_bg_image') this.chatBgImage = value
+      else if (key === 'enable_web_search') this.enableSearchLocal = value
+      else if (key === 'tts_enabled') this.ttsEnabled = value
+      else if (key === 'stt_enabled') this.sttEnabled = value
+      else if (key === 'auto_play_voice') this.autoPlayVoice = value
+      else if (key === 'use_system_notification') this.useSystemNotification = value
+      else if (key === 'notification_style') this.notificationStyle = value
+      else if (key === 'use_weather_care') this.useWeatherCare = value
+      else if (key === 'show_tray_notification') this.showTrayNotification = value
+      else if (key === 'voice') { if (value.tts_enabled !== undefined) this.ttsEnabled = value.tts_enabled; if (value.stt_enabled !== undefined) this.sttEnabled = value.stt_enabled; if (value.auto_play !== undefined) this.autoPlayVoice = value.auto_play }
+    },
+    onAvatarUpdated() { this.loadAvatars() },
     async testApiConnection() { this.testing.ds = true; this.testing.dsStatus = ''; this.testing.dsMsg = ''; try { const res = await api.get('/test/deepseek'); this.testing.dsStatus = res.data.ok ? 'ok' : 'fail'; this.testing.dsMsg = res.data.message } catch (err) { this.testing.dsStatus = 'fail'; this.testing.dsMsg = '请求失败' } finally { this.testing.ds = false } },
     async saveTone() { await this.updateGlobalConfig('personality', { tone: this.toneLocal }) },
     async saveCustomPrompt() { await this.updateGlobalConfig('custom_system_prompt', this.customPromptLocal); this.promptSaved = true; setTimeout(() => { this.promptSaved = false }, 2000) },
     async loadRelationship() { try { const res = await api.get('/relationship/'); this.relationship = res.data } catch (err) { console.error(err) } },
+    async switchRelMode() {
+      this.relModeMsg = ''
+      try {
+        const res = await api.post('/settings/relationship-mode', { mode: this.relationshipMode })
+        if (!res.data.ok) {
+          this.relModeMsg = res.data.error || '切换失败'
+          setTimeout(() => { this.relModeMsg = ''; this.relationshipMode = this.relationshipMode === 'fast' ? 'long_term' : 'fast' }, 3000)
+          return
+        }
+        if (res.data.clamped) {
+          this.relModeMsg = '已切换。' + res.data.clamp_reason
+          setTimeout(() => { this.relModeMsg = '' }, 5000)
+          this.loadRelationship()
+        }
+      } catch (err) {
+        this.relModeMsg = '切换失败'
+        setTimeout(() => { this.relModeMsg = '' }, 3000)
+      }
+    },
     async loadEmotionTrend() { try { const res = await api.get('/emotion/trend?days=7'); this.emotionTrend = res.data.trend || [] } catch (err) { console.error(err) } },
     async fetchModels() {
       this.loadingModels = true
@@ -550,6 +431,50 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
     formatTime(ts) { if (!ts) return ''; try { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '' } },
     dateLabel(ts) { if (!ts) return ''; try { const d = new Date(ts); if (isNaN(d.getTime())) return ''; const today = new Date(); if (d.toDateString() === today.toDateString()) return '今天'; const y = new Date(today); y.setDate(y.getDate()-1); if (d.toDateString() === y.toDateString()) return '昨天'; return d.toLocaleDateString('zh-CN', { month:'long', day:'numeric' }) } catch { return '' } },
     safeLinkify(text) { if (!text) return ''; const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>') },
+    async playVoice(msg) {
+      try {
+        const res = await api.post('/tts/tts', { text: msg.content, character: 'YUKI', affection: 50, trust: 60 }, { timeout: 120000 })
+        if (res.data.success && res.data.audio_url) {
+          this.$refs.audioEl.src = BASE_URL + res.data.audio_url
+          this.$refs.audioEl.play().catch(() => {})
+        }
+      } catch (err) { console.error('TTS error:', err) }
+    },
+    async startVoiceInput() {
+      if (!navigator.mediaDevices) { alert('浏览器不支持麦克风') ; return }
+      if (this.isRecording) { this.stopRecording() ; return }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+        this.mediaRecorder = new MediaRecorder(stream, { mimeType: mime })
+        this.audioChunks = []
+        this._voiceStream = stream
+        this.mediaRecorder.ondataavailable = (e) => { this.audioChunks.push(e.data) }
+        this.mediaRecorder.onstop = async () => {
+          const blob = new Blob(this.audioChunks, { type: mime })
+          const form = new FormData(); form.append('file', blob, 'recording.webm')
+          try {
+            const res = await api.post('/stt/recognize', form)
+            if (res.data.success && res.data.text) {
+              this.inputText += (this.inputText ? ' ' : '') + res.data.text
+            }
+          } catch (err) { console.error('STT error:', err) }
+          stream.getTracks().forEach(t => t.stop())
+        }
+        this.mediaRecorder.start()
+        this.isRecording = true
+        setTimeout(() => { if (this.isRecording) this.stopRecording() }, 10000)
+      } catch (err) { console.error('Mic error:', err); alert('无法访问麦克风') }
+    },
+    stopRecording() {
+      if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        this.mediaRecorder.stop()
+      } else if (this._voiceStream) {
+        this._voiceStream.getTracks().forEach(t => t.stop())
+        this._voiceStream = null
+      }
+      this.isRecording = false
+    },
     openContextMenu(e, msg) { this.ctxTargetMsg = msg; this.ctxMenuX = e.clientX; this.ctxMenuY = e.clientY; this.showContextMenu = true; setTimeout(() => { document.addEventListener('click', () => { this.showContextMenu = false }, { once: true }) }) },
     copyMessage(msg) { navigator.clipboard.writeText(msg.content).catch(() => {}); this.showContextMenu = false },
     quoteMessage(msg) { this.quoteMsg = msg; this.showContextMenu = false; this.$nextTick(() => this.$refs.inputEl?.focus()) },
@@ -613,7 +538,7 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
     },
     adjustFontSize(delta) { this.chatFontSize = Math.min(20, Math.max(10, this.chatFontSize + delta)); document.querySelector('.msg-list').style.fontSize = this.chatFontSize + 'px'; this.updateGlobalConfig('chat_font_size', this.chatFontSize) },
     async exportChat() { try { const res = await api.get('/export/chat?format=txt'); const blob = new Blob([res.data.content], { type: 'text/plain' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = res.data.filename; a.click() } catch (err) { alert('导出失败') } },
-    setTheme(v) { this.themeLocal = v; this.currentTheme = v; document.documentElement.setAttribute('data-theme', v); const metaColors = { dark: '#0d1117', light: '#f5f6fa', sakura: '#1a1418', vesper: '#12101a' }; const meta = document.getElementById('theme-color-meta'); if (meta) meta.content = metaColors[v] || '#0d1117'; api.post('/api/window-theme', { dark: v !== 'light' }).catch(()=>{}); this.updateGlobalConfig('theme', v) },
+    setTheme(v) { this.themeLocal = v; this.currentTheme = v; document.documentElement.setAttribute('data-theme', v); const metaColors = { dark: '#0d1117', light: '#f5f6fa', vesper: '#1a1418', vesper: '#12101a' }; const meta = document.getElementById('theme-color-meta'); if (meta) meta.content = metaColors[v] || '#0d1117'; api.post('/api/window-theme', { dark: v !== 'light' }).catch(()=>{}); this.updateGlobalConfig('theme', v) },
     updateColorField(key, hex) { if (/^#[0-9a-fA-F]{6}$/.test(hex)) { this.colors[key] = hex; this.updateGlobalConfig(this.colorFields.find(f=>f.key===key)?.configKey, hex) } },
     saveColorPreset() {
       const name = this.newPresetName || prompt('预设名称：')
@@ -633,43 +558,44 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
     applyColorPreset(name) {
       const t = this.currentTheme
       const presets = {
-        sakura: {
+        vesper: {
           dark:    { primary: '#e8929b', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#3d2b3a', aiBubble: '#251e25' },
           light:   { primary: '#d4727f', bg: '#fff5f6', sidebarBg: '#ffe8eb', chatBg: '#fff5f6', userBubble: '#e8929b', aiBubble: '#ffffff' },
-          sakura:  { primary: '#e8929b', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#c76e7a', aiBubble: '#251e25' },
+          vesper:  { primary: '#e8929b', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#c76e7a', aiBubble: '#251e25' },
           vesper:  { primary: '#d4a0aa', bg: '#12101a', sidebarBg: '#1a1726', chatBg: '#12101a', userBubble: '#6b4f5a', aiBubble: '#1e1b2e' }
         },
         default: {
           dark:    { primary: '#5390d4', bg: '#0d1117', sidebarBg: '#161b22', chatBg: '#0d1117', userBubble: '#2b5278', aiBubble: '#1e2632' },
           light:   { primary: '#2b6cb0', bg: '#f5f6fa', sidebarBg: '#e8e9ed', chatBg: '#f5f6fa', userBubble: '#2b6cb0', aiBubble: '#ffffff' },
-          sakura:  { primary: '#7a9ec4', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#3d4a5a', aiBubble: '#251e25' },
+          vesper:  { primary: '#7a9ec4', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#3d4a5a', aiBubble: '#251e25' },
           vesper:  { primary: '#6b8fa3', bg: '#12101a', sidebarBg: '#1a1726', chatBg: '#12101a', userBubble: '#3a5060', aiBubble: '#1e1b2e' }
         },
         wechat: {
           dark:    { primary: '#07C160', bg: '#111111', sidebarBg: '#1a1a1a', chatBg: '#111111', userBubble: '#054', aiBubble: '#1e1e1e' },
           light:   { primary: '#07C160', bg: '#f5f5f5', sidebarBg: '#e8e8e8', chatBg: '#f5f5f5', userBubble: '#07C160', aiBubble: '#ffffff' },
-          sakura:  { primary: '#07C160', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#1a4a2a', aiBubble: '#251e25' },
+          vesper:  { primary: '#07C160', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#1a4a2a', aiBubble: '#251e25' },
           vesper:  { primary: '#07C160', bg: '#12101a', sidebarBg: '#1a1726', chatBg: '#12101a', userBubble: '#1a4a2a', aiBubble: '#1e1b2e' }
         },
         teal: {
           dark:    { primary: '#14b8a6', bg: '#0f1724', sidebarBg: '#151e2d', chatBg: '#0f1724', userBubble: '#0f766e', aiBubble: '#1a2332' },
           light:   { primary: '#0d9488', bg: '#f0fdfa', sidebarBg: '#e0f5f0', chatBg: '#f0fdfa', userBubble: '#14b8a6', aiBubble: '#ffffff' },
-          sakura:  { primary: '#14b8a6', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#1a4a44', aiBubble: '#251e25' },
+          vesper:  { primary: '#14b8a6', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#1a4a44', aiBubble: '#251e25' },
           vesper:  { primary: '#14b8a6', bg: '#12101a', sidebarBg: '#1a1726', chatBg: '#12101a', userBubble: '#1a4a44', aiBubble: '#1e1b2e' }
         },
         warm: {
           dark:    { primary: '#f59e0b', bg: '#1a1410', sidebarBg: '#221c14', chatBg: '#1a1410', userBubble: '#78350f', aiBubble: '#231f18' },
           light:   { primary: '#d97706', bg: '#fffbeb', sidebarBg: '#fef3c7', chatBg: '#fffbeb', userBubble: '#f59e0b', aiBubble: '#ffffff' },
-          sakura:  { primary: '#f59e0b', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#5a3a1a', aiBubble: '#251e25' },
+          vesper:  { primary: '#f59e0b', bg: '#1a1418', sidebarBg: '#221a1f', chatBg: '#1a1418', userBubble: '#5a3a1a', aiBubble: '#251e25' },
           vesper:  { primary: '#f59e0b', bg: '#12101a', sidebarBg: '#1a1726', chatBg: '#12101a', userBubble: '#5a3a1a', aiBubble: '#1e1b2e' }
         }
       }
       const p = (presets[name] && presets[name][t]) || (presets[name] && presets[name].dark) || presets.default.dark
       Object.keys(p).forEach(k => { this.colors[k] = p[k]; this.updateGlobalConfig(this.colorFields.find(f=>f.key===k)?.configKey || k+'_color', p[k]) })
     },
-    async loadHistory() { try { const res = await api.get(`/chat/history/?limit=50`); this.messages = res.data.messages.map(m => { if (m.role === 'assistant' && m.content && m.content.startsWith('__WEATHER_CARD__')) { try { return { ...m, isWeather: true, weatherData: JSON.parse(m.content.slice(16)), content: '__WEATHER_CARD__' } } catch(e) { return m } } return m }); this.nextAfterId = res.data.next_after_id; const countRes = await api.get(`/chat/history/count`); this.totalMessages = countRes.data.count; if (this.messages.length) { this.conversationDays = Math.ceil((new Date() - new Date(this.messages[0].timestamp)) / 86400000) } this.scrollToBottom(); this.loadError = '' } catch (err) { this.loadError = '加载失败，点击重试'; console.error(err) } },
+    async loadHistory() { try { const res = await api.get('/chat/history/?limit=50'); this.messages = res.data.messages.map(m => { if (m.role === 'assistant' && m.content && m.content.startsWith('__WEATHER_CARD__')) { try { return { ...m, isWeather: true, weatherData: JSON.parse(m.content.slice(16)), content: '__WEATHER_CARD__' } } catch(e) { return m } } return m }); this.nextAfterId = res.data.next_after_id; const countRes = await api.get('/chat/history/count'); this.totalMessages = countRes.data.count; if (this.messages.length) { this.conversationDays = Math.ceil((new Date() - new Date(this.messages[0].timestamp)) / 86400000) } this.userScrolledUp = false; this.scrollToBottom(true); this.loadError = '' } catch (err) { this.loadError = '加载失败，点击重试'; console.error(err) } },
     async onDataChanged() { await this.loadHistory(); if (this.messages.length === 0) { this.nextAfterId = null } },
-    async loadMoreHistory() { if (this.loadingMore || !this.nextAfterId) return; this.loadingMore = true; try { const res = await api.get(`/chat/history/?limit=50&after_id=${this.nextAfterId}`); if (res.data.messages.length) { const mapped = res.data.messages.map(m => { if (m.role === 'assistant' && m.content && m.content.startsWith('__WEATHER_CARD__')) { try { return { ...m, isWeather: true, weatherData: JSON.parse(m.content.slice(16)), content: '__WEATHER_CARD__' } } catch(e) { return m } } return m }); this.messages = [...mapped, ...this.messages]; this.nextAfterId = res.data.next_after_id } else { this.nextAfterId = null } } catch (err) { console.error(err) } finally { this.loadingMore = false } },
+    onChatScroll() { const el = this.$refs.messagesContainer; if (!el) return; this.userScrolledUp = el.scrollTop + el.clientHeight < el.scrollHeight - 60; if (el.scrollTop < 40 && this.nextAfterId && !this.loadingMore && !this._blockLoadMore) { this.loadMoreHistory() } },
+    async loadMoreHistory() { if (this.loadingMore || !this.nextAfterId) return; this.loadingMore = true; const prevHeight = this.$refs.messagesContainer?.scrollHeight || 0; try { const res = await api.get(`/chat/history/?limit=50&after_id=${this.nextAfterId}`); if (res.data.messages.length) { const mapped = res.data.messages.map(m => { if (m.role === 'assistant' && m.content && m.content.startsWith('__WEATHER_CARD__')) { try { return { ...m, isWeather: true, weatherData: JSON.parse(m.content.slice(16)), content: '__WEATHER_CARD__' } } catch(e) { return m } } return m }); const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 15); const oldest = mapped[0]; if (oldest && new Date(oldest.timestamp) < cutoff) { this.nextAfterId = null } else { this.nextAfterId = res.data.next_after_id }; this.messages = [...mapped, ...this.messages]; this.$nextTick(() => { const el = this.$refs.messagesContainer; if (el) el.scrollTop = el.scrollHeight - prevHeight }) } else { this.nextAfterId = null } } catch (err) { console.error(err) } finally { this.loadingMore = false } },
     connectWebSocket() {
       this.ws = new WebSocket(`${WS_URL}/ws/chat`)
       this.ws.onopen = () => { this.wsReady = true; this.wsReconnectAttempts = 0 }
@@ -681,14 +607,17 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
           if (!this.schedId) this.schedulePop()
         } else if (data.type === 'done') {
           this.stopTypewriter()
-        } else if (data.type === 'greeting') { this.messages.push({ role: 'assistant', content: data.content, timestamp: new Date().toISOString() }); this.totalMessages++; this.scrollToBottom() }
+        } else if (data.type === 'greeting') { const last = this.messages[this.messages.length - 1]; if (!last || (last.role === 'assistant' && !last.isProactive && !last._isGreeting) || last.role === 'user') { this.messages.push({ role: 'assistant', content: data.content, timestamp: new Date().toISOString(), _isGreeting: true }); this.totalMessages++; this.scrollToBottom() } }
         else if (data.type === 'reminder_count') {
           this.reminderCount = data.count || 0
         }
         else if (data.type === 'proactive') {
-          this.messages.push({ role: 'assistant', content: data.content, timestamp: new Date().toISOString(), isProactive: true })
-          this.totalMessages++
-          this.scrollToBottom()
+          const last = this.messages[this.messages.length - 1]
+          if (!last || last.role === 'user' || (last.role === 'assistant' && !last.isProactive)) {
+            this.messages.push({ role: 'assistant', content: data.content, timestamp: new Date().toISOString(), isProactive: true })
+            this.totalMessages++
+            this.scrollToBottom()
+          }
         }
         else if (data.type === 'weather') {
           this.messages.push({ role: 'assistant', content: '__WEATHER_CARD__', weatherData: data.data, timestamp: new Date().toISOString(), isWeather: true })
@@ -699,6 +628,9 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
           this.pendingReply = ''
           this.isStreaming = true
           this._currentReplyLen = 0
+          if (this.schedId) { clearTimeout(this.schedId); this.schedId = null }
+          if (this._twTimer) { clearTimeout(this._twTimer); this._twTimer = null }
+          this._twQueue = []; this._twActive = false
         }
         else if (data.type === 'reminder') {
           const d = data.data
@@ -727,6 +659,8 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
       if (!this.wsReady) { this.messages.push({ id: 'err_' + Date.now(), role: 'assistant', content: '未连接，请确认后端已启动', timestamp: new Date().toISOString() }); return }
       this._sendingCooldown = true; setTimeout(() => { this._sendingCooldown = false }, 500)
       if (this.schedId) { clearTimeout(this.schedId); this.schedId = null }
+      if (this._twTimer) { clearTimeout(this._twTimer); this._twTimer = null }
+      this._twQueue = []; this._twActive = false
       this.userScrolledUp = false
       const userMsg = this.inputText.trim()
       this.messages.push({ role: 'user', content: userMsg, timestamp: new Date().toISOString() })
@@ -748,18 +682,33 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
     openNoteModal() { this.showNoteModal = true }, closeNoteModal() { this.showNoteModal = false },
     openCountdownModal() { this.showCountdownModal = true }, closeCountdownModal() { this.showCountdownModal = false },
     openReminderModal() { this.showReminderModal = true }, closeReminderModal() { this.showReminderModal = false },
-    openSettings() { this.showSettingsModal = true; this.loadIpLocation(); if (!this.provinces.length) this.loadProvinces(); if (!Object.keys(this.presets).length) this.loadPresets() },
+    openSettings() { if (!Object.keys(this.allSettings).length) return; this.showSettingsModal = true; this.loadIpLocation(); if (!this.provinces.length) this.loadProvinces(); if (!Object.keys(this.presets).length) this.loadPresets() },
     closeSettingsModal() { this.showSettingsModal = false },
+    closeEmotionPanel() { this.showEmotionPanel = false; if (this._emotionFromSettings) { this._emotionFromSettings = false; this.showSettingsModal = true } },
+    openEmotionPanel(fromSettings) { this._emotionFromSettings = !!fromSettings; this.showEmotionPanel = true },
     stopTypewriter() {
       this.isStreaming = false
       if (this._streamTimeout) { clearTimeout(this._streamTimeout); this._streamTimeout = null }
+      if (this._twTimer) { clearTimeout(this._twTimer); this._twTimer = null }
       this._currentReplyLen = 0
-      // 始终继续分句，不整段甩出
+      // flush remaining tw queue immediately
+      while (this._twQueue.length) {
+        const s = this._twQueue.shift()
+        const last = this.messages[this.messages.length - 1]
+        if (!last || last.role !== 'assistant' || last._twDone) {
+          this.messages.push({ role: 'assistant', content: s, timestamp: new Date().toISOString() }); this.totalMessages++
+        } else {
+          last.content = s; last._twDone = true
+        }
+      }
+      this._twActive = false
       if (this.pendingReply.trim() && !this.schedId) {
         this.schedulePop()
       }
     },
     findNextSentence(text) {
+      if (this.sentenceMode === 'delimiter') { const idx = text.indexOf('<<>>'); if (idx !== -1) return [text.slice(0, idx), text.slice(idx + 4)] }
+      if (this.sentenceMode === 'raw') return null
       const SENTENCE_END = /[。！？!?…～]/; const GREEDY_END = /[…～]/
       let state = 0, buf = '', parenBuf = ''
       for (let i = 0; i < text.length; i++) {
@@ -824,22 +773,60 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
         const result = this.findNextSentence(this.pendingReply)
         if (result) {
           const sentence = result[0]
-          if (sentence.length >= 2) {
-            this.messages.push({ role: 'assistant', content: sentence, timestamp: new Date().toISOString() }); this.totalMessages++
-          }
           this.pendingReply = result[1] || ''
           this.scrollToBottom()
-          const delay = Math.min(Math.max(300, 250 + sentence.length * 30), 2000)
-          this.schedId = setTimeout(pop, delay)
+          if (sentence.length >= 2) {
+            if (this.sentenceMode === 'typewriter') {
+              this._twPush(sentence)
+            } else {
+              this.messages.push({ role: 'assistant', content: sentence, timestamp: new Date().toISOString() }); this.totalMessages++
+            }
+          }
+          const jitter = 0.8 + Math.random() * 0.4
+          const delay = Math.min(Math.max(300, 250 + sentence.length * 30), 2000) * jitter
+          this.schedId = setTimeout(pop, delay | 0)
         } else if (!this.isStreaming) {
           const remain = this.pendingReply.trim()
-          if (remain) { this.messages.push({ role: 'assistant', content: remain, timestamp: new Date().toISOString() }); this.totalMessages++ }
+          if (this.sentenceMode === 'raw' && remain) {
+            this._twPush(remain)
+          } else if (remain) {
+            this.messages.push({ role: 'assistant', content: remain, timestamp: new Date().toISOString() }); this.totalMessages++
+          }
           this.pendingReply = ''; this.scrollToBottom()
         } else {
           this.schedId = setTimeout(pop, 100)
         }
       }
       this.schedId = setTimeout(pop, 60)
+    },
+    _twPush(sentence) {
+      this._twQueue.push(sentence)
+      if (!this._twActive) { this._twActive = true; this._twTick() }
+    },
+    _twTick() {
+      if (!this._twQueue.length) { this._twActive = false; return }
+      const sentence = this._twQueue[0]
+      const msgs = this.messages
+      let last = msgs[msgs.length - 1]
+      if (!last || last.role !== 'assistant' || (last._twDone)) {
+        last = { role: 'assistant', content: '', timestamp: new Date().toISOString(), _twDone: false }
+        msgs.push(last); this.totalMessages++
+      }
+      const idx = last.content.length
+      if (idx < sentence.length) {
+        last.content += sentence[idx]
+        this.scrollToBottom()
+        this._twTimer = setTimeout(() => this._twTick(), 30 + Math.random() * 40 | 0)
+      } else {
+        last._twDone = true
+        this._twQueue.shift()
+        this.scrollToBottom()
+        if (this._twQueue.length) {
+          this._twTimer = setTimeout(() => this._twTick(), 80 + Math.random() * 120 | 0)
+        } else {
+          this._twActive = false
+        }
+      }
     },
     dismissReminder(id) { this.reminderPopups = this.reminderPopups.filter(p => p._id !== id) },
     async completeReminder(pop) {
@@ -849,7 +836,7 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
       this.dismissReminder(pop._id)
       try { await api.patch(`/reminders/${pop.id}/snooze`) } catch (err) { console.error('稍后失败', err) }
     },
-    scrollToBottom(force) { if (!force && this.userScrolledUp) return; this.$nextTick(() => { requestAnimationFrame(() => { const el = this.$refs.messagesContainer; if (el) { el.scrollTop = el.scrollHeight } }) }) },
+    scrollToBottom(force) { if (!force && this.userScrolledUp) return; if (force) this._blockLoadMore = true; this.$nextTick(() => { requestAnimationFrame(() => { const el = this.$refs.messagesContainer; if (el) { el.scrollTop = el.scrollHeight } if (force) setTimeout(() => { this._blockLoadMore = false }, 800) }) }) },
     async testWeather() { this.testing.wt = true; this.testing.wtStatus = ''; this.testing.wtMsg = ''; try { const res = await api.get('/test/weather'); this.testing.wtStatus = res.data.ok ? 'ok' : 'fail'; this.testing.wtMsg = res.data.ok ? res.data.report : res.data.message } catch (err) { this.testing.wtStatus = 'fail'; this.testing.wtMsg = '请求失败' } finally { this.testing.wt = false } },
     async testSearch() { this.testing.se = true; this.testing.seStatus = ''; this.testing.seMsg = ''; try { const res = await api.get('/test/search'); this.testing.seStatus = res.data.ok ? 'ok' : 'fail'; this.testing.seMsg = res.data.message } catch (err) { this.testing.seStatus = 'fail'; this.testing.seMsg = '请求失败' } finally { this.testing.se = false } },
     async testIp() { this.testing.ip = true; this.testing.ipStatus = ''; this.testing.ipMsg = ''; try { const res = await api.get('/test/ip'); this.testing.ipStatus = res.data.ok ? 'ok' : 'fail'; this.testing.ipMsg = res.data.message; if (res.data.ok) { this.ipCityShort = res.data.message; this.loadIpLocation() } } catch (err) { this.testing.ipStatus = 'fail'; this.testing.ipMsg = '请求失败' } finally { this.testing.ip = false } },
@@ -1002,8 +989,6 @@ this.userScrolledUp = distFromBottom > 250; const seps = el.querySelectorAll('.d
 .btn-play-msg { display: inline-block; margin-left: 6px; color: #888; font-size: 11px; cursor: pointer; padding: 2px 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 4px; user-select: none; }
 .btn-play-msg:hover { color: var(--p); border-color: var(--p); }
 
-:root[data-theme="light"] .btn-hold-speak { background: #f5f6fa; color: #333; border-color: #ddd; }
-:root[data-theme="light"] .btn-voice-toggle { color: #999; border-color: #ddd; }
 
 /* ====== Modals (small tools) ====== */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(6px); display: flex; justify-content: center; align-items: center; z-index: 1000; }
@@ -1130,8 +1115,6 @@ input, select, textarea { font-family: inherit; }
 .theme-btn { flex: 1; padding: 10px; background: rgba(255,255,255,.04); color: #999; border: 1px solid rgba(255,255,255,.06); border-radius: 6px; cursor: pointer; font-size: 14px; transition: all .15s; }
 .theme-btn:hover { color: #ccc; }
 .theme-btn.active { background: var(--p); color: #fff; border-color: var(--p); }
-:root[data-theme="light"] .theme-btn { background: #f0f0f0; color: #666; }
-:root[data-theme="light"] .theme-btn.active { background: var(--p); color: #fff; }
 
 /* --- Colors --- */
 .color-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
@@ -1140,9 +1123,7 @@ input, select, textarea { font-family: inherit; }
 .color-label { width: 56px; font-size: 12px; color: #8899aa; flex-shrink: 0; }
 .color-pick { width: 28px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.1); border-radius: 4px; cursor: pointer; background: transparent; }
 .color-hex { width: 80px; padding: 4px 8px !important; border-radius: 4px; background: #0f1923; color: #ccc; border: 1px solid rgba(255,255,255,.08); font-size: 12px; outline: none; font-family: monospace; }
-.color-hex:focus { border-color: var(--p); }
 .preset-bar { display: flex; gap: 6px; flex-wrap: wrap; }
-:root[data-theme="light"] .color-hex { background: #f5f6fa; color: #333; }
 
 /* --- Background upload --- */
 .bg-row { display: flex; gap: 8px; }
@@ -1154,7 +1135,9 @@ input, select, textarea { font-family: inherit; }
 </style>
 
 <style>
-/* QQ 亮色模式 */
+/* 基础变量（所有主题共享） */
+:root { --border: rgba(255,255,255,.08); --tc: #ecf0f1; --tc2: #bdc3c7; --tc3: #666; --pink: var(--p); }
+/* 亮色模式 */
 :root[data-theme="light"] { --p: #2b6cb0; --bg: #f5f6fa; --sb: #e8e9ed; --cb: #f5f6fa; --ub: #2b6cb0; --ab: #ffffff; }
 :root[data-theme="light"] .top-bar,
 :root[data-theme="light"] .sidebar,
@@ -1228,31 +1211,36 @@ html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
 :root[data-theme="light"] .reminder-popup { background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
 :root[data-theme="light"] .reminder-popup-text { color: #333; }
 :root[data-theme="light"] .reminder-popup-time { color: #999; }
+:root[data-theme="light"] .btn-hold-speak { background: #f5f6fa; color: #333; border-color: #ddd; }
+:root[data-theme="light"] .btn-voice-toggle { color: #999; border-color: #ddd; }
+:root[data-theme="light"] .theme-btn { background: #f0f0f0; color: #666; }
+:root[data-theme="light"] .theme-btn.active { background: var(--p); color: #fff; }
+:root[data-theme="light"] .color-hex { background: #f5f6fa; color: #333; }
 
 /* ═══ 樱花粉主题 ═══ */
-:root[data-theme="sakura"] { --p: #e8929b; --bg: #1a1418; --sb: #221a1f; --cb: #1a1418; --ub: #c76e7a; --ab: #251e25; --pink: #e8929b; }
-:root[data-theme="sakura"] .top-bar,
-:root[data-theme="sakura"] .sidebar,
-:root[data-theme="sakura"] .chat-top,
-:root[data-theme="sakura"] .chat-input { background: #221a1f; border-color: #3d2b3a; }
-:root[data-theme="sakura"] .chat { background: #1a1418; }
-:root[data-theme="sakura"] .brand { color: #e8929b; }
-:root[data-theme="sakura"] .status { background: #e74c3c22; color: #e8929b; }
-:root[data-theme="sakura"] .status.online { background: #4caf5022; color: #a8d6a8; }
-:root[data-theme="sakura"] .msg.assistant .msg-bubble { background: #251e25; color: #ecf0f1; }
-:root[data-theme="sakura"] .msg.user .msg-bubble { background: #c76e7a; color: #fff; }
-:root[data-theme="sakura"] .theme-btn { background: #2e1f28; color: #7f6b7a; }
-:root[data-theme="sakura"] .theme-btn.active { background: #e8929b; color: #fff; }
-:root[data-theme="sakura"] .nav-item.active { color: #e8929b; background: rgba(232,146,155,.12); }
-:root[data-theme="sakura"] .reminder-popup { background: #221a1f; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-:root[data-theme="sakura"] .settings-titlebar { border-color: #3d2b3a; }
-:root[data-theme="sakura"] .settings-nav { border-color: #3d2b3a; }
-:root[data-theme="sakura"] .nav-icons button { color: #8a7080; }
-:root[data-theme="sakura"] .nav-icons button:hover { color: #e8929b; background: rgba(232,146,155,.08); }
-:root[data-theme="sakura"] .sidebar-toggle { color: #8a7080; }
-:root[data-theme="sakura"] .sidebar-toggle:hover { color: #e8929b; }
-:root[data-theme="sakura"] .msg-time { color: #7a6575; }
-:root[data-theme="sakura"] .location { color: #7a6575; }
+:root[data-theme="vesper"] { --p: #e8929b; --bg: #1a1418; --sb: #221a1f; --cb: #1a1418; --ub: #c76e7a; --ab: #251e25; --pink: #e8929b; }
+:root[data-theme="vesper"] .top-bar,
+:root[data-theme="vesper"] .sidebar,
+:root[data-theme="vesper"] .chat-top,
+:root[data-theme="vesper"] .chat-input { background: #221a1f; border-color: #3d2b3a; }
+:root[data-theme="vesper"] .chat { background: #1a1418; }
+:root[data-theme="vesper"] .brand { color: #e8929b; }
+:root[data-theme="vesper"] .status { background: #e74c3c22; color: #e8929b; }
+:root[data-theme="vesper"] .status.online { background: #4caf5022; color: #a8d6a8; }
+:root[data-theme="vesper"] .msg.assistant .msg-bubble { background: #251e25; color: #ecf0f1; }
+:root[data-theme="vesper"] .msg.user .msg-bubble { background: #c76e7a; color: #fff; }
+:root[data-theme="vesper"] .theme-btn { background: #2e1f28; color: #7f6b7a; }
+:root[data-theme="vesper"] .theme-btn.active { background: #e8929b; color: #fff; }
+:root[data-theme="vesper"] .nav-item.active { color: #e8929b; background: rgba(232,146,155,.12); }
+:root[data-theme="vesper"] .reminder-popup { background: #221a1f; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+:root[data-theme="vesper"] .settings-titlebar { border-color: #3d2b3a; }
+:root[data-theme="vesper"] .settings-nav { border-color: #3d2b3a; }
+:root[data-theme="vesper"] .nav-icons button { color: #8a7080; }
+:root[data-theme="vesper"] .nav-icons button:hover { color: #e8929b; background: rgba(232,146,155,.08); }
+:root[data-theme="vesper"] .sidebar-toggle { color: #8a7080; }
+:root[data-theme="vesper"] .sidebar-toggle:hover { color: #e8929b; }
+:root[data-theme="vesper"] .msg-time { color: #7a6575; }
+:root[data-theme="vesper"] .location { color: #7a6575; }
 
 /* ═══ 夕语主题（青紫 + 星光）═══ */
 :root[data-theme="vesper"] { --p: #7c6e9a; --bg: #12101a; --sb: #1a1726; --cb: #12101a; --ub: #5a4f7a; --ab: #1e1b2e; --pink: #7c6e9a; }

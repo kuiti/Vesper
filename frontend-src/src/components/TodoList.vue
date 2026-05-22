@@ -97,10 +97,13 @@ export default {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  padding: 6px;
+  padding: 8px 10px;
   background: #16213e;
   border-radius: 8px;
+  transition: transform .15s, background .15s;
 }
+.todo-item:hover { background: rgba(255,255,255,.04); transform: translateX(2px); }
+.todo-item input[type="checkbox"] { accent-color: var(--p, #e8929b); width: 16px; height: 16px; cursor: pointer; }
 .todo-item span {
   flex: 1;
   color: white;
@@ -108,16 +111,21 @@ export default {
 .todo-item span.done {
   text-decoration: line-through;
   color: #7f8c8d;
+  transition: all .25s;
 }
 .todo-item button {
   background: none;
   border: none;
   cursor: pointer;
   font-size: 14px;
+  opacity: .4;
+  transition: opacity .15s;
 }
+.todo-item button:hover { opacity: 1; }
 .empty {
   color: #7f8c8d;
   text-align: center;
   font-size: 14px;
+  padding: 20px;
 }
 </style>

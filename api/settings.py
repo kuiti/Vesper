@@ -50,11 +50,24 @@ async def get_all_settings() -> Dict[str, Any]:
         "chat_bg": get_config("chat_bg", "#0d1117"),
         "user_bubble": get_config("user_bubble", "#2b5278"),
         "ai_bubble": get_config("ai_bubble", "#1e2632"),
+        "tts_enabled": get_config("voice", {}).get("tts_enabled", True),
+        "stt_enabled": get_config("voice", {}).get("stt_enabled", True),
+        "auto_play_voice": get_config("voice", {}).get("auto_play", False),
         "use_system_notification": get_config("use_system_notification", False),
         "notification_style": get_config("notification_style", "warm"),
         "use_weather_care": get_config("use_weather_care", True),
-        "show_tray_notification": get_config("show_tray_notification", True)
+        "show_tray_notification": get_config("show_tray_notification", True),
+        "relationship_mode": get_config("relationship_mode", "fast"),
+        "sentence_mode": get_config("sentence_mode", "auto"),
+        "proactive_frequency": get_config("proactive_frequency", "medium"),
+        "proactive_style": get_config("proactive_style", "warm")
     }
+
+@router.post("/relationship-mode")
+async def set_relationship_mode(data: dict):
+    """切换关系模式（fast / long_term）"""
+    from core.relationship import switch_relationship_mode
+    return switch_relationship_mode(data.get("mode", "fast"))
 
 @router.post("/")
 async def update_setting(update: ConfigUpdate):

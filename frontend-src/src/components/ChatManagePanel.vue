@@ -111,8 +111,8 @@ export default {
     async deleteRange() {
       if (!this.dateValid) return
       const norm = (d) => {
-        const [y, m, d_] = d.trim().match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/).slice(1)
-        return `${y}/${m.padStart(2,'0')}/${d_.padStart(2,'0')}`
+        const [y, m, d_] = d.trim().match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/).slice(1)
+        return `${y}-${m.padStart(2,'0')}-${d_.padStart(2,'0')}`
       }
       const start = norm(this.startDate), end = norm(this.endDate)
       if (!confirm(`确定删除 ${start} 至 ${end} 的聊天记录和AI记忆吗？`)) return
@@ -172,15 +172,6 @@ export default {
   cursor: pointer;
   font-size: 12px;
 }
-.date-range { display: flex; align-items: center; gap: 8px; }
-.date-range input[type="text"] { width: 100px; padding: 6px 8px; border-radius: 6px; background: #0f1923; color: #ddd; border: 1px solid rgba(255,255,255,.1); font-size: 13px; font-family: monospace; text-align: center; outline: none; }
-.date-range input[type="text"]:focus { border-color: #4e89ae; }
-.date-error { color: #e74c3c; font-size: 11px; margin-top: 6px; }
-.quick-buttons button:hover {
-  background: #4e89ae;
-}
-.danger-btn { background: #e74c3c !important; }
-.danger-btn:hover { background: #c0392b !important; }
 .date-range {
   display: flex;
   align-items: center;
@@ -194,6 +185,7 @@ export default {
   background: #1a1a2e;
   color: white;
 }
+.date-range input:focus { border-color: #4e89ae; }
 .date-range button {
   background: #4e89ae;
   border: none;
@@ -202,6 +194,12 @@ export default {
   color: white;
   cursor: pointer;
 }
+.date-error { color: #e74c3c; font-size: 11px; margin-top: 6px; }
+.quick-buttons button:hover {
+  background: #4e89ae;
+}
+.danger-btn { background: #e74c3c !important; }
+.danger-btn:hover { background: #c0392b !important; }
 .auto-cleanup {
   display: flex;
   align-items: center;

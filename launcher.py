@@ -33,18 +33,41 @@ try:
 except OSError:
     pass
 
-# ─── 命名管道单实例检测 ───
+# ─── 5端口固定 + HTTP健康检查单实例检测 ───
 import win32pipe, win32file, pywintypes
 
-PIPE_NAME = '\\\\' + '.' + '\\pipe\\' + 'vesper_ai'  # \\.\pipe\vesper_ai
+FIXED_PORTS = [8060, 8061, 8062, 8063, 8064]
 HWND_FILE = os.path.join("data", "hwnd.txt")
 WM_SHOW_WINDOW = 0x0400 + 1  # WM_USER + 1
 
-def _try_activate_existing():
-    """尝试连接已有实例的命名管道并发送 show 命令"""
+
+def _find_existing_instance():
+    """遍历5个固定端口，发HTTP健康检查，找到已运行的实例。
+    返回 (port, response_text)，无实例返回 (None, None)。
+    """
+    import urllib.request
+    for port in FIXED_PORTS:
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/health",
+                headers={"User-Agent": "VesperLauncher/1.0"}
+            )
+            resp = urllib.request.urlopen(req, timeout=3)
+            text = resp.read().decode('utf-8', errors='ignore')
+            resp.close()
+            if resp.status == 200:
+                return port, text
+        except Exception:
+            continue
+    return None, None
+
+
+def _activate_existing_window(port):
+    """尝试激活已有实例的窗口。先试命名管道，失败则用浏览器打开。"""
+    pipe_name = f'\\\\.\\pipe\\vesper_ai_{port}'
     try:
         handle = win32file.CreateFile(
-            PIPE_NAME,
+            pipe_name,
             win32file.GENERIC_READ | win32file.GENERIC_WRITE,
             0, None,
             win32file.OPEN_EXISTING,
@@ -52,17 +75,27 @@ def _try_activate_existing():
         win32file.WriteFile(handle, b'show')
         _, resp = win32file.ReadFile(handle, 4096)
         win32file.CloseHandle(handle)
-        return resp.decode('utf-8', errors='ignore').strip() == 'ok'
-    except (pywintypes.error, Exception):
-        return False
+        if resp.decode('utf-8', errors='ignore').strip() == 'ok':
+            print(f"[启动] 已通过管道激活端口 {port} 的窗口")
+            return
+    except Exception:
+        pass
+    # 管道失败，回退浏览器
+    import webbrowser
+    webbrowser.open(f"http://127.0.0.1:{port}/")
+    print(f"[启动] 浏览器打开 http://127.0.0.1:{port}/")
 
-def _start_pipe_server():
-    """在后台线程启动命名管道服务器"""
+
+def _start_pipe_server(port):
+    """在后台线程启动命名管道服务器（管道名包含端口号）"""
+    pipe_name = f'\\\\.\\pipe\\vesper_ai_{port}'
+
     def _serve():
         while True:
+            pipe = None
             try:
                 pipe = win32pipe.CreateNamedPipe(
-                    PIPE_NAME,
+                    pipe_name,
                     win32pipe.PIPE_ACCESS_DUPLEX,
                     win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
                     1, 4096, 4096, 0, None)
@@ -74,20 +107,31 @@ def _start_pipe_server():
                     _on_tray_show(None, None)
                 elif cmd == 'quit':
                     win32file.WriteFile(pipe, b'ok')
-                    win32file.CloseHandle(pipe)
                     _on_tray_quit(None, None)
                     return
                 elif cmd == 'ping':
                     resp = b'pong'
                 win32file.WriteFile(pipe, resp)
-                win32file.CloseHandle(pipe)
-            except Exception:
+            except Exception as e:
+                print(f"[管道] 异常: {e}")
                 _time.sleep(1)
+            finally:
+                if pipe:
+                    try: win32file.CloseHandle(pipe)
+                    except Exception: pass
     t = threading.Thread(target=_serve, daemon=True)
     t.start()
     return t
 
-SAKURA_PORT = 8060
+
+def _find_free_port():
+    """在5个固定端口中找第一个空闲端口"""
+    import socket
+    for port in FIXED_PORTS:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return port
+    raise RuntimeError("所有端口(8060-8064)均被占用")
 
 def start_backend(port):
     import uvicorn
@@ -130,14 +174,7 @@ def _read_theme():
 
 _last_theme = _read_theme()
 
-# 预写 config.js（端口固定，不需要等后端启动）
-_meipass = getattr(sys, '_MEIPASS', None)
-_frontend = os.path.join(_meipass if _meipass else BASE_DIR, "frontend")
-if os.path.isdir(_frontend):
-    with open(os.path.join(_frontend, "config.js"), "w", encoding="utf-8") as f:
-        f.write(f"window.__SAKURA_CONFIG__ = {{ backendPort: {SAKURA_PORT}, theme: \"{_last_theme}\" }};")
-
-threading.Thread(target=start_backend, args=(SAKURA_PORT,), daemon=True).start()
+# config.js 延迟到主流程中写入（需要先确定 SAKURA_PORT）
 
 # 加载页 HTML（主题自适应）
 loading_html = '''<!DOCTYPE html>
@@ -258,7 +295,6 @@ function poll(){
 }
 setTimeout(poll,200);
 </script></body></html>'''
-loading_html = loading_html.replace('__PORT__', str(SAKURA_PORT)).replace('__THEME__', _last_theme)
 
 def _write_hwnd(hwnd):
     try:
@@ -409,14 +445,33 @@ def _register_wnd_proc(hwnd):
 
 # ─── 主流程 ───
 
-# 1. 命名管道单实例检测
-if _try_activate_existing():
-    print("[启动] 检测到已有实例，已激活其窗口")
+# 1. HTTP 健康检查，检测已有实例
+existing_port, _ = _find_existing_instance()
+if existing_port:
+    print(f"[启动] 检测到已有实例在端口 {existing_port}，激活其窗口")
+    _activate_existing_window(existing_port)
     sys.exit(0)
 
-# 2. 启动管道服务器（自己是主实例）
-_start_pipe_server()
-print("[启动] 命名管道服务器已启动")
+# 2. 无已有实例 → 找空闲端口
+SAKURA_PORT = _find_free_port()
+print(f"[启动] 使用端口: {SAKURA_PORT}")
+loading_html = loading_html.replace('__PORT__', str(SAKURA_PORT)).replace('__THEME__', _last_theme)
+
+# 3. 写 config.js（端口确定后）
+_meipass = getattr(sys, '_MEIPASS', None)
+_frontend_dir = os.path.join(_meipass if _meipass else BASE_DIR, "frontend")
+if os.path.isdir(_frontend_dir):
+    with open(os.path.join(_frontend_dir, "config.js"), "w", encoding="utf-8") as f:
+        f.write(f"window.__SAKURA_CONFIG__ = {{ backendPort: {SAKURA_PORT}, theme: \"{_last_theme}\" }};")
+else:
+    _frontend_dir = os.path.join(BASE_DIR, "static")
+
+# 4. 启动管道服务器（管道名: vesper_ai_{SAKURA_PORT}）
+_start_pipe_server(SAKURA_PORT)
+print(f"[启动] 命名管道服务器已启动 (vesper_ai_{SAKURA_PORT})")
+
+# 5. 启动后端
+threading.Thread(target=start_backend, args=(SAKURA_PORT,), daemon=True).start()
 
 # 3. 启动系统托盘
 _setup_tray()

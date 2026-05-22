@@ -17,6 +17,6 @@ async def rag_status():
     try:
         col = get_collection()
         count = col.count()
-    except:
+    except Exception:
         count = 0
     return {"model_loaded": model_ok, "vector_count": count}

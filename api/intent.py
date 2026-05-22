@@ -150,15 +150,40 @@ def build_weather_text(casts: list) -> str:
     return text
 
 def web_search(query: str) -> str:
+    """联网搜索。DDG 优先，失败回退 Bing。超时 8 秒。"""
+    # 方案1: DuckDuckGo
     try:
         from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
+        with DDGS(timeout=8) as ddgs:
             results = list(ddgs.text(query, max_results=3))
             if results:
                 return "\n\n".join([f"{r['title']}：{r['body'][:150]}" for r in results])
-            return "未找到相关信息"
     except Exception as e:
-        return f"搜索出错：{str(e)}"
+        print(f"[搜索] DDG 失败: {e}")
+
+    # 方案2: Bing 备用
+    try:
+        resp = requests.get(
+            f"https://www.bing.com/search?q={requests.utils.quote(query)}",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            timeout=8
+        )
+        if resp.status_code == 200:
+            from re import findall
+            snippets = findall(r'<p[^>]*class=["\']?[^"\'>]*\bb_caption\b[^>]*>(.*?)</p>', resp.text, flags=re.DOTALL)
+            if not snippets:
+                snippets = findall(r'<p[^>]*>(.*?)</p>', resp.text, flags=re.DOTALL)
+            clean = []
+            for s in snippets[:3]:
+                s = re.sub(r'<[^>]+>', '', s).strip()
+                if len(s) > 20:
+                    clean.append(s[:200])
+            if clean:
+                return "\n\n".join(clean)
+    except Exception as e:
+        print(f"[搜索] Bing 备用失败: {e}")
+
+    return ""
 
 # ─── 意图关键词 ─────────────────────────────────
 
@@ -300,14 +325,14 @@ def detect_intent(user_message: str) -> tuple:
         if match_any(user_message, NEWS_PATTERNS):
             query = extract_search_query(user_message, ["最近新闻", "新闻", "最新消息", "热点", "头条", "告诉我"])
             result = web_search(query + " 新闻")
-            if "未找到" not in result and "出错" not in result:
+            if result:
                 return ("search", result)
 
         # 知识问答
         elif match_any(user_message, KNOWLEDGE_PATTERNS):
             query = extract_search_query(user_message, ["什么是", "是谁", "介绍一下", "告诉我关于", "为什么", "如何", "怎么样"])
             result = web_search(query)
-            if "未找到" not in result and "出错" not in result:
+            if result:
                 return ("search", result)
 
         # 明确搜索
@@ -315,7 +340,7 @@ def detect_intent(user_message: str) -> tuple:
             query = extract_search_query(user_message, ["搜索", "查一下", "帮我查", "帮我搜", "百度", "上网查", "网上查", "查一查", "搜一搜"])
             if query and query != user_message:
                 result = web_search(query)
-                if "未找到" not in result and "出错" not in result:
+                if result:
                     return ("search", result)
 
     return (None, None)

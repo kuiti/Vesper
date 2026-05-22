@@ -9,7 +9,7 @@
       <button @click="addReminder">+</button>
     </div>
     <div class="items">
-      <div v-for="r in reminders" :key="r.id" :class="['item', { done: r.done }]">
+      <div v-for="r in reminders" :key="r.id" :class="['item', { done: r.done }]" :data-level="r.level">
         <div>
           <strong>{{ r.content }}</strong>
           <div class="meta">目标: {{ formatTime(r.target_time) }} | 等级: {{ getLevelName(r.level) }}</div>
@@ -38,6 +38,7 @@ const LEVELS = [
 ]
 
 export default {
+  inject: ['showConfirm'],
   data() {
     return {
       reminders: [],
@@ -92,7 +93,7 @@ export default {
       }
     },
     async deleteReminder(id) {
-      if (!confirm('删除此提醒？')) return
+      if (!await this.showConfirm('删除此提醒？')) return
       try {
         await api.delete(`/reminders/${id}`)
         await this.load()
@@ -109,12 +110,18 @@ export default {
 .add-item { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .add-item input, .add-item select { flex: 1; min-width: 120px; padding: 6px; border-radius: 6px; background: #1a1a2e; color: white; border: 1px solid #2c3e50; }
 .add-item button { background: #4e89ae; border: none; color: white; border-radius: 6px; cursor: pointer; padding: 0 16px; }
-.item { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #16213e; border-radius: 6px; margin-bottom: 8px; }
+.item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: #16213e; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid transparent; transition: transform .15s, background .15s, border-color .2s; }
+.item:hover { background: rgba(255,255,255,.04); transform: translateX(2px); }
 .item.done { opacity: 0.5; }
 .item.done strong { text-decoration: line-through; }
+.item[data-level="7"], .item[data-level="6"] { border-left-color: #e74c3c; }
+.item[data-level="5"], .item[data-level="4"] { border-left-color: #f59e0b; }
+.item[data-level="3"], .item[data-level="2"] { border-left-color: #5390d4; }
+.item[data-level="1"] { border-left-color: #4caf50; }
 .meta { font-size: 12px; color: #aaa; margin-top: 4px; }
 .actions { display: flex; gap: 6px; align-items: center; }
-.actions button { background: none; border: none; cursor: pointer; }
-.btn-done { color: #4caf50 !important; font-size: 16px; font-weight: bold; }
-.empty { text-align: center; color: #7f8c8d; font-size: 13px; padding: 12px; }
+.actions button { background: none; border: none; cursor: pointer; opacity: .4; transition: opacity .15s; }
+.actions button:hover { opacity: 1; }
+.btn-done { color: #4caf50 !important; font-size: 16px; font-weight: bold; opacity: 1 !important; }
+.empty { text-align: center; color: #7f8c8d; font-size: 13px; padding: 20px; }
 </style>

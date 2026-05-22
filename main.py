@@ -39,6 +39,8 @@ _ALL_ROUTERS = [
     ("api.cloud", "router"),
     ("api.emotion", "router"),
     ("api.relationship", "router"),
+    ("api.demand", "router"),
+    ("api.goal", "router"),
 ]
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
@@ -48,7 +50,7 @@ API_PREFIXES = ("settings", "chat", "todos", "notes", "countdowns", "reminders",
                 "memory", "summary", "search", "rag", "export", "avatar", "location",
                 "migrate", "test", "ws", "avatars", "assets", "api",
                 "knowledge", "mcp", "profile", "schedule", "vision", "cloud", "text",
-                "emotion", "relationship")
+                "emotion", "relationship", "demand", "goal")
 
 
 @asynccontextmanager

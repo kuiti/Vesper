@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vesper - 启动中</title>
+<title>佐仓 - 启动中</title>
 <style>
 html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%}
 *{box-sizing:border-box}
@@ -24,7 +24,7 @@ body{font-family:'Microsoft YaHei',sans-serif;background:#0d1117;color:#ecf0f1;d
 </head>
 <body>
 <div class="loading-box">
-  <h1>Vesper</h1>
+  <h1>佐仓</h1>
   <div class="steps">
     <div class="step" id="s1"><span class="dot"></span>启动后端服务</div>
     <div class="step" id="s2"><span class="dot"></span>加载 AI 模型</div>
@@ -50,7 +50,7 @@ function poll() {
   fetch('http://127.0.0.1:' + port + '/')
     .then(function(r) { return r.text() })
     .then(function(txt) {
-      if (txt.indexOf('Vesper') > -1 || txt.indexOf('index') > -1 || txt.indexOf('app') > -1 || txt.length > 200) {
+      if (txt.indexOf('佐仓') > -1 || txt.indexOf('index') > -1 || txt.indexOf('app') > -1 || txt.length > 200) {
         setStep(0, 'done');
         setStep(1, 'active');
         setTimeout(function(){

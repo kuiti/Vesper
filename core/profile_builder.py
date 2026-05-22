@@ -1,7 +1,6 @@
 """从对话中提取长期用户画像"""
 
 import json
-import requests
 from core.db import get_config, get_all_chat_messages
 
 _profile_cache = None
@@ -53,30 +52,10 @@ def extract_profile_from_messages():
 请提取：昵称/称呼、兴趣爱好、日常习惯、重要事件、其他备注。
 格式：{{"key": "value", ...}}，只输出有把握的，不要猜测。"""
 
-    base_url = get_config("api_base_url", "https://api.deepseek.com/v1").rstrip("/")
-    model = get_config("api_model", "deepseek-chat")
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 300
-    }
-    try:
-        resp = requests.post(f"{base_url}/chat/completions",
-                             headers=headers, json=payload, timeout=20)
-        resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
-        for prefix in ["```json", "```"]:
-            if raw.startswith(prefix):
-                raw = raw[len(prefix):].strip()
-        for suffix in ["```"]:
-            if raw.endswith(suffix):
-                raw = raw[:-len(suffix)].strip()
-        data = json.loads(raw)
+    from core.llm_client import call_llm
+    data = call_llm(prompt=prompt, temperature=0.3, max_tokens=300, timeout=20, json_mode=True)
+    if data:
         save_profile(data)
-    except Exception as e:
-        print(f"[画像提取] 异常: {e}")
 
 
 def save_profile(data: dict):

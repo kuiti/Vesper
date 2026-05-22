@@ -9,7 +9,7 @@ import os
 
 # 确保 data 目录存在
 os.makedirs("data", exist_ok=True)
-DB_FILE = os.path.join("data", "vesper.db")
+DB_FILE = os.path.join("data", "sakura.db")
 
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
@@ -76,17 +76,17 @@ def _ensure_db():
         # todos 表
         cursor.execute("""CREATE TABLE IF NOT EXISTS todos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content TEXT, done INTEGER DEFAULT 0, created_at TEXT
+            task TEXT, done INTEGER DEFAULT 0, created TEXT
         )""")
         # notes 表
         cursor.execute("""CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT, content TEXT, created_at TEXT, updated_at TEXT
+            title TEXT, content TEXT, created TEXT, updated_at TEXT
         )""")
         # countdowns 表
         cursor.execute("""CREATE TABLE IF NOT EXISTS countdowns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT, target_time TEXT, created_at TEXT
+            name TEXT, target_date TEXT
         )""")
         # reminders 表
         cursor.execute("""CREATE TABLE IF NOT EXISTS reminders (
@@ -117,6 +117,69 @@ def _ensure_db():
         cursor.execute("""CREATE TABLE IF NOT EXISTS relationship (
             key TEXT PRIMARY KEY,
             value REAL DEFAULT 50,
+            updated_at TEXT
+        )""")
+        # 需求模式积累
+        cursor.execute("""CREATE TABLE IF NOT EXISTS demand_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trigger_context TEXT,
+            demand_level TEXT,
+            emotion_analysis TEXT,
+            latent_need TEXT,
+            frequency INTEGER DEFAULT 1,
+            last_matched TEXT,
+            created_at TEXT
+        )""")
+        # 长期目标追踪
+        cursor.execute("""CREATE TABLE IF NOT EXISTS goal_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal_text TEXT,
+            category TEXT,
+            status TEXT DEFAULT 'active',
+            first_mentioned TEXT,
+            last_mentioned TEXT,
+            last_followed_up TEXT,
+            follow_up_count INTEGER DEFAULT 0,
+            source_summary_id INTEGER,
+            created_at TEXT
+        )""")
+        # AI 情感事件日志
+        cursor.execute("""CREATE TABLE IF NOT EXISTS emotion_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            event_type TEXT,
+            affection_delta REAL,
+            trust_delta REAL,
+            affection_after REAL,
+            trust_after REAL,
+            ai_emotion_after TEXT,
+            trigger_detail TEXT,
+            reason TEXT
+        )""")
+        # AI 性格特征
+        cursor.execute("""CREATE TABLE IF NOT EXISTS ai_personality_traits (
+            key TEXT PRIMARY KEY,
+            value REAL DEFAULT 0.5,
+            updated_at TEXT
+        )""")
+        # 用户活跃时段统计
+        cursor.execute("""CREATE TABLE IF NOT EXISTS user_activity_stats (
+            hour INTEGER PRIMARY KEY,
+            message_count INTEGER DEFAULT 0,
+            last_updated TEXT
+        )""")
+        # 主动消息回复记录
+        cursor.execute("""CREATE TABLE IF NOT EXISTS proactive_response_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            trigger_type TEXT,
+            content TEXT,
+            responded INTEGER DEFAULT 0
+        )""")
+        # 持续低落标记（用于主动触发 C）
+        cursor.execute("""CREATE TABLE IF NOT EXISTS proactive_flags (
+            key TEXT PRIMARY KEY,
+            value TEXT,
             updated_at TEXT
         )""")
         # FTS5 全文搜索
@@ -185,6 +248,19 @@ def _ensure_db():
                 print("[迁移] 旧摘要数据已迁移至三级摘要系统")
             except Exception as e:
                 print(f"[迁移] 摘要迁移失败: {e}")
+
+        # ─── schema 升级：为旧数据库补加缺失列 ───
+        migrations = [
+            ("config", "updated_at", "TEXT"),
+            ("notes", "updated_at", "TEXT"),
+        ]
+        for table, col, col_type in migrations:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                conn.commit()
+                print(f"[迁移] {table}.{col} 列已添加")
+            except sqlite3.OperationalError:
+                pass  # 列已存在
     finally:
         conn.close()
 
@@ -384,7 +460,7 @@ def set_config(key, value):
             value = json.dumps(value, ensure_ascii=False)
         else:
             value = str(value)
-        cursor.execute("REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+        cursor.execute("INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, ?)", (key, value, datetime.now().isoformat()))
 
 # ========== memory 操作 ==========
 def get_memory():
@@ -940,3 +1016,102 @@ def archive_message(msg_id):
     with get_conn() as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE chat_history SET archived = 1 WHERE id = ?", (msg_id,))
+
+
+# ========== 用户活跃时段统计 ==========
+
+def record_user_activity_hour():
+    """记录当前小时的用户活跃"""
+    hour = datetime.now().hour
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO user_activity_stats (hour, message_count, last_updated) VALUES (?, 1, ?) "
+            "ON CONFLICT(hour) DO UPDATE SET message_count = message_count + 1, last_updated = ?",
+            (hour, now, now)
+        )
+
+
+def get_active_hours(top_n: int = 3) -> list:
+    """返回消息量最多的 N 个小时（如 [20, 21, 22]）"""
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT hour FROM user_activity_stats ORDER BY message_count DESC LIMIT ?",
+            (top_n,)
+        )
+        return [r["hour"] for r in cursor.fetchall()]
+
+
+# ========== 主动消息回复记录 ==========
+
+def log_proactive_message(trigger_type: str, content: str):
+    """记录发出的主动消息"""
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO proactive_response_log (timestamp, trigger_type, content, responded) VALUES (?, ?, ?, 0)",
+            (now, trigger_type, content)
+        )
+
+
+def mark_proactive_responded():
+    """用户回复后，标记最近一条主动消息为已回复"""
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE proactive_response_log SET responded = 1 "
+            "WHERE id = (SELECT MAX(id) FROM proactive_response_log WHERE responded = 0)"
+        )
+
+
+def get_proactive_response_rate(days: int = 14) -> float:
+    """计算最近 N 天的主动消息回复率"""
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) as total, SUM(responded) as responded "
+            "FROM proactive_response_log "
+            "WHERE timestamp >= datetime('now', ?)",
+            (f"-{days} days",)
+        )
+        row = cursor.fetchone()
+        total = row["total"] if row else 0
+        if total == 0:
+            return 0.5  # 无数据时默认中等回复率
+        return row["responded"] / total if total else 0.5
+
+
+def get_proactive_cooldown_minutes() -> int:
+    """根据回复率自动调整冷却时间（分钟）"""
+    rate = get_proactive_response_rate(14)
+    if rate >= 0.5:
+        return 40
+    elif rate >= 0.2:
+        return 60
+    else:
+        return 120
+
+
+# ========== 主动触发标记 ==========
+
+def get_proactive_flag(key: str) -> str | None:
+    """读取主动触发标记"""
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM proactive_flags WHERE key=?", (key,))
+        row = cursor.fetchone()
+    return row["value"] if row else None
+
+
+def set_proactive_flag(key: str, value: str):
+    """写入主动触发标记"""
+    now = datetime.now().isoformat()
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO proactive_flags (key, value, updated_at) VALUES (?, ?, ?)",
+            (key, value, now)
+        )

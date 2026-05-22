@@ -1,8 +1,27 @@
+import asyncio
 import requests
 from fastapi import APIRouter
 from core.db import get_config
 
 router = APIRouter(prefix="/test", tags=["test"])
+
+@router.get("/models")
+async def fetch_models():
+    """获取可用模型列表"""
+    api_key = get_config("api_key", "")
+    if not api_key:
+        return {"ok": False, "models": [], "message": "未配置 API Key"}
+    try:
+        base_url = get_config("api_base_url", "https://api.deepseek.com/v1").rstrip("/")
+        headers = {"Authorization": f"Bearer {api_key}"}
+        resp = await asyncio.to_thread(requests.get, f"{base_url}/models", headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        models = [m["id"] for m in data.get("data", [])]
+        models.sort()
+        return {"ok": True, "models": models}
+    except Exception as e:
+        return {"ok": False, "models": [], "message": str(e)}
 
 @router.get("/deepseek")
 async def test_deepseek():
@@ -10,16 +29,18 @@ async def test_deepseek():
     if not api_key:
         return {"ok": False, "message": "未配置 API Key"}
     try:
+        base_url = get_config("api_base_url", "https://api.deepseek.com/v1").rstrip("/")
+        model = get_config("api_model", "deepseek-chat")
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {
-            "model": "deepseek-chat",
+            "model": model,
             "messages": [{"role": "user", "content": "回复OK即可"}],
             "max_tokens": 5,
             "temperature": 0
         }
-        resp = requests.post("https://api.deepseek.com/v1/chat/completions", headers=headers, json=payload, timeout=15)
+        resp = await asyncio.to_thread(requests.post, f"{base_url}/chat/completions", headers=headers, json=payload, timeout=15)
         resp.raise_for_status()
-        return {"ok": True, "message": "DeepSeek API 正常"}
+        return {"ok": True, "message": f"{model} API 正常"}
     except Exception as e:
         return {"ok": False, "message": str(e)}
 
@@ -43,38 +64,41 @@ async def test_weather():
 async def test_search():
     try:
         from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.text("测试", max_results=1))
-            if results:
-                return {"ok": True, "message": "联网搜索正常"}
-            return {"ok": False, "message": "搜索无结果"}
+        def _search():
+            with DDGS() as ddgs:
+                return list(ddgs.text("测试", max_results=1))
+        results = await asyncio.to_thread(_search)
+        if results:
+            return {"ok": True, "message": "联网搜索正常"}
+        return {"ok": False, "message": "搜索无结果"}
     except Exception as e:
         return {"ok": False, "message": str(e)}
 
 @router.get("/ip")
 async def test_ip():
     """测试 IP 定位（三重尝试）"""
-    import requests as req
     api_key = get_config("amap_key", "")
     # 1. 高德 IP
     if api_key:
         try:
-            resp = req.get(f"https://restapi.amap.com/v3/ip?key={api_key}", timeout=5)
+            resp = await asyncio.to_thread(requests.get, f"https://restapi.amap.com/v3/ip?key={api_key}", timeout=5)
             data = resp.json()
             if data.get("status") == "1":
                 p, c = data.get("province", ""), data.get("city", "")
                 if isinstance(p, list): p = ""
                 if isinstance(c, list): c = ""
                 if c: return {"ok": True, "message": f"{p} {c}"}
-        except: pass
+        except Exception as e:
+            print(f"[测试IP] 高德异常: {e}")
     # 2. ip-api.com
     try:
-        resp = req.get("http://ip-api.com/json/?lang=zh-CN", timeout=5)
+        resp = await asyncio.to_thread(requests.get, "http://ip-api.com/json/?lang=zh-CN", timeout=5)
         data = resp.json()
         if data.get("status") == "success": return {"ok": True, "message": f"{data.get('regionName','')} {data['city']}"}
-    except: pass
+    except Exception as e:
+        print(f"[测试IP] ip-api 异常: {e}")
 
-    # 4. 用已配置的城市
+    # 3. 用已配置的城市
     city = get_config("precise_city", "")
     if city: return {"ok": True, "message": f"手动设置: {city}"}
 
