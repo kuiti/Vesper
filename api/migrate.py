@@ -34,7 +34,15 @@ def _collect_export_data() -> dict:
     with get_conn() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key, value FROM config")
-        config = {row["key"]: row["value"] for row in cursor.fetchall()}
+        _SENSITIVE = {"api_key", "amap_key", "pin_code", "passphrase"}
+        config = {}
+        for row in cursor.fetchall():
+            if row["key"] in _SENSITIVE:
+                continue
+            val = row["value"]
+            if row["key"] == "cloud_config" and isinstance(val, dict):
+                val = {k: v for k, v in val.items() if k not in ("passphrase", "passphrase_salt", "passphrase_key")}
+            config[row["key"]] = val
 
     return {
         "version": EXPORT_VERSION,
@@ -81,8 +89,10 @@ async def import_all(file: UploadFile = File(...), bg: BackgroundTasks = None):
 
     # 阶段2：恢复数据
     try:
-        # 恢复 config
+        # 恢复 config（跳过敏感 key，避免覆盖当前环境的凭证）
         for key, value in data.get("config", {}).items():
+            if key in ("api_key", "amap_key"):
+                continue
             set_config(key, value)
 
         # 恢复 memory

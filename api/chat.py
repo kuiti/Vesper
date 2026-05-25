@@ -461,6 +461,8 @@ async def chat_websocket(websocket: WebSocket):
                 continue
             user_message = request.get("message", "")
             history = request.get("history") or []
+            _is_game_event = request.get("_gameEvent", False)
+            _is_system = request.get("_system", False)
 
             if not user_message:
                 await websocket.send_text(json.dumps({"type": "error", "content": "消息不能为空"}))
@@ -527,7 +529,8 @@ async def chat_websocket(websocket: WebSocket):
                 try:
                     tease_reply = await asyncio.to_thread(generate_tease)
                     if tease_reply:
-                        add_chat_message("user", user_message)
+                        if not _is_system:
+                            add_chat_message("user", user_message)
                         add_chat_message("assistant", tease_reply)
                         await websocket.send_text(json.dumps({"type": "token", "content": tease_reply}))
                         await websocket.send_text(json.dumps({"type": "done"}))
@@ -535,8 +538,9 @@ async def chat_websocket(websocket: WebSocket):
                 except Exception as e:
                     print(f"调侃生成失败: {e}")
 
-            # 用户消息先入库（LLM失败也不丢失用户输入）
-            add_chat_message("user", user_message)
+            # 用户消息先入库（系统消息和LLM失败也不丢失用户输入）
+            if not _is_system:
+                add_chat_message("user", user_message)
             msg_count = 0  # 等 LLM 成功后再递增
 
             try:
@@ -612,6 +616,9 @@ async def chat_websocket(websocket: WebSocket):
                 # ─── 主动对话上下文注入 ───
                 if proactive_note:
                     system_prompt += "\n" + proactive_note
+                # ─── 系统消息（游戏事件等）：用活泼语气简短回复 ───
+                if _is_system:
+                    system_prompt += "\n【重要】这条消息是系统通知，不是用户直接说的。用活泼、鼓励的语气回复，像朋友在旁边看你玩游戏一样。控制在15字以内，简短有力。不要追问，不要展开话题。"
 
                 messages = [{"role": "system", "content": system_prompt}]
                 messages.extend(history[-35:])
@@ -753,20 +760,23 @@ async def chat_websocket(websocket: WebSocket):
                             reply_pos = assistant_content.find(parser.REPLY_MARKER)
                             if reply_pos != -1:
                                 assistant_content = assistant_content[reply_pos + len(parser.REPLY_MARKER):]
-                        sentences = fallback_split(assistant_content)
-                        if sentences:
-                            for i, sentence in enumerate(sentences):
-                                add_chat_message("assistant", sentence)
-                                if is_model_ready():
-                                    add_message_vector(f"assistant_{datetime.now().timestamp()}_{i}", sentence, {"role": "assistant"})
-                        else:
-                            add_chat_message("assistant", assistant_content)
-                            if is_model_ready():
-                                add_message_vector(f"assistant_{datetime.now().timestamp()}", assistant_content, {"role": "assistant"})
-                    await websocket.send_text(json.dumps({"type": "done"}))
+                        if not _is_system:
+                            sentences = fallback_split(assistant_content)
+                            if sentences:
+                                for i, sentence in enumerate(sentences):
+                                    add_chat_message("assistant", sentence)
+                                    if is_model_ready() and not _is_game_event:
+                                        add_message_vector(f"assistant_{datetime.now().timestamp()}_{i}", sentence, {"role": "assistant"})
+                            else:
+                                add_chat_message("assistant", assistant_content)
+                                if is_model_ready() and not _is_game_event:
+                                    add_message_vector(f"assistant_{datetime.now().timestamp()}", assistant_content, {"role": "assistant"})
+                    await websocket.send_text(json.dumps({"type": "done", "_system": _is_system}))
+                    if _is_system and assistant_content:
+                        await websocket.send_text(json.dumps({"type": "toast", "content": assistant_content.strip()[:120]}))
 
-                    # LLM 成功后补记用户消息向量 + 消息计数
-                    if is_model_ready():
+                    # LLM 成功后补记用户消息向量 + 消息计数（系统消息和游戏事件全跳过）
+                    if not _is_system and is_model_ready() and not _is_game_event:
                         add_message_vector(f"user_{datetime.now().timestamp()}_{uuid.uuid4().hex[:6]}", user_message, {"role": "user"})
                     msg_count = increment_msg_counter()
 
@@ -811,7 +821,7 @@ WEATHER_NOTIFICATION_FILE = "data/weather_notification.json"
 
 async def weather_scheduler():
     """全局天气定时推送（7:00, 12:00, 19:00）"""
-    last_push_date = ""
+    pushed_slots = set()
     while True:
         now = datetime.now()
         targets = [7, 12, 19]
@@ -826,8 +836,8 @@ async def weather_scheduler():
         now = datetime.now()
         today = now.strftime("%Y-%m-%d")
         hour = now.hour
-        if hour in (7, 12, 19) and today != last_push_date:
-            last_push_date = today
+        if hour in (7, 12, 19) and (today, hour) not in pushed_slots:
+            pushed_slots.add((today, hour))
             try:
                 await _push_weather(hour)
             except Exception as e:
@@ -835,7 +845,7 @@ async def weather_scheduler():
 
 async def _push_weather(push_hour: int):
     from core.weather import get_weather_for_city, build_weather_card_data
-    city = get_config("precise_city") or "北京"
+    city = get_config("precise_city") or get_config("manual_city") or "北京"
     weather = await asyncio.to_thread(get_weather_for_city, city)
     card_data = build_weather_card_data(weather, push_hour)
     if "error" in card_data:

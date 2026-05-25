@@ -81,6 +81,8 @@ async def recognize(file: UploadFile = File(...)):
         audio_data = await file.read()
         if not audio_data:
             return STTResponse(success=False, error="Empty audio data")
+        if len(audio_data) > 10 * 1024 * 1024:
+            return STTResponse(success=False, error="Audio file too large (max 10MB)")
 
         pcm_data = _convert_to_pcm(audio_data)
         import vosk

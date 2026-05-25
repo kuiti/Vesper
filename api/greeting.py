@@ -164,21 +164,52 @@ def generate_greeting():
 
     # 人设指令作为 system message，确保问候风格一致
     system_prompt = f"{personality_part}\n{length_rule}。严格按照你的人设风格回复，包括语气、措辞习惯和情感状态。"
+    # 天气信息（2s 超时，不影响问候速度）
+    weather_hint = ""
+    try:
+        from core.weather import get_weather_for_city
+        import concurrent.futures
+        city = get_config("precise_city") or get_config("manual_city") or None
+        if city:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                _future = _pool.submit(get_weather_for_city, city)
+                try:
+                    w = _future.result(timeout=2)
+                    if "error" not in w and w.get("temp") is not None:
+                        weather_hint = f"你知道{city}现在{w.get('weather','')}，{w['temp']}度。如果自然的话可以顺口提一句。"
+                except concurrent.futures.TimeoutError:
+                    pass
+    except Exception:
+        pass
     ctx_line = f"\n【上下文提示】{context_hint}。\n" if context_hint else ""
-    user_prompt = f"{memory_text}\n用户{time_desc}。\n时间风格：{slot['style']}。{ctx_line}\n请生成一个简短、自然的欢迎语。直接输出欢迎语，不要加任何前缀。"
+    user_prompt = f"{memory_text}\n用户{time_desc}。\n时间风格：{slot['style']}。{ctx_line}\n请生成一个简短、自然的欢迎语。{weather_hint}直接输出欢迎语，不要加任何前缀。"
 
     from core.llm_client import call_llm
-    result = call_llm(prompt=user_prompt, system=system_prompt, temperature=0.7, max_tokens=100, timeout=10)
+    result = None
+    for _attempt in range(3):
+        result = call_llm(prompt=user_prompt, system=system_prompt, temperature=0.7, max_tokens=100, timeout=30)
+        if result:
+            break
     if result:
         return result
-    print(f"[问候] LLM 返回空")
-    return "回来啦。"
+    print(f"[问候] LLM 返回空，使用兜底问候")
+    fallbacks = {
+        "early_morning": ["早啊，今天起得挺早。","早。又是新的一天。","早啊，昨晚睡得好吗。","早。今天天气不错。","早。要喝杯咖啡吗。"],
+        "morning": ["上午好，今天有什么打算吗。","上午好，今天天气挺好的。","上午好呀。","上午了，开始忙了吗。","上午好，精神不错的样子。"],
+        "lunch": ["中午了，记得吃午饭。","中午好，吃过饭了吗。","中午了，别饿着肚子。","中午好呀。","中午了，休息一下吧。"],
+        "afternoon": ["下午好。","下午好，今天过得怎样。","下午了，喝杯茶吧。","下午好呀，有点困了没。","下午好，今天效率怎么样。"],
+        "evening": ["傍晚了，今天过得怎样。","傍晚好，天快黑了。","傍晚了，今天辛苦啦。","傍晚好呀，晚饭吃了吗。","傍晚了，该歇歇了。"],
+        "night": ["晚上好。","晚上好，今天累不累。","晚上好呀。","晚上好，听听音乐放松下。","晚上好，今天过得开心吗。"],
+        "late_night": ["这么晚了还没睡啊。","还没睡？想什么呢。","夜深了，早点休息吧。","还不睡啊，明天起得来吗。","这么晚了，睡不着吗。"],
+    }
+    choices = fallbacks.get(slot["slot"], ["你来了。","来了呀。","嗯，来了。","回来啦。","到了。"])
+    return random.choice(choices)
 
 def generate_tease():
     """生成调侃回复（用户说"我回来了"时）"""
     api_key = get_config("api_key", "")
     if not api_key:
-        return "你还知道回来？"
+        return random.choice(["你还知道回来？","终于回来了。","等你半天了。","回来啦，想你了。","可算回来了。"])
     
     hours_gone = get_time_gap_hours()
     if hours_gone is None or hours_gone < 0.5:
@@ -242,11 +273,15 @@ def generate_tease():
     user_prompt = f"{memory_text}\n用户{time_desc}，说\"我回来了\"。请用符合你人设的语气调侃一句。直接输出回复。"
 
     from core.llm_client import call_llm
-    result = call_llm(prompt=user_prompt, system=system_prompt, temperature=0.8, max_tokens=100, timeout=10)
+    result = None
+    for _attempt in range(2):
+        result = call_llm(prompt=user_prompt, system=system_prompt, temperature=0.8, max_tokens=100, timeout=20)
+        if result:
+            break
     if result:
         return result
     print(f"[调侃] LLM 返回空")
-    return "你还知道回来？"
+    return random.choice(["你还知道回来？","终于回来了。","等你半天了。","回来啦，想你了。","可算回来了。"])
 
 
 def generate_proactive(trigger_type: str, context: dict = None):
@@ -266,6 +301,10 @@ def generate_proactive(trigger_type: str, context: dict = None):
 
     now = datetime.now()
     hour = now.hour
+
+    # ─── 深夜不打扰 ───
+    if hour >= 23 or hour < 7:
+        return None
 
     # ─── 基础信息 ───
     personality = get_config("personality", {})
@@ -335,6 +374,20 @@ def generate_proactive(trigger_type: str, context: dict = None):
     time_slot = get_time_slot_info()
     time_context = f"现在是{time_slot['desc']}。{time_slot['style']}。"
 
+    # ─── 位置与天气 ───
+    weather_context = ""
+    try:
+        from core.weather import get_weather_for_city
+        city = get_config("precise_city") or get_config("manual_city") or None
+        if city:
+            weather = get_weather_for_city(city)
+            if "error" not in weather and weather.get("temp") is not None:
+                w_desc = weather.get("weather", "")
+                w_temp = weather["temp"]
+                weather_context = f"你知道{city}现在{w_desc}，{w_temp}度。但不用硬提天气，只有自然的时候才顺口带一句。"
+    except Exception:
+        pass
+
     # ─── 触发特定的内容指令 ───
     trigger_instruction = context.get("style", "像朋友一样自然闲聊")
     idle_desc = ""
@@ -358,11 +411,16 @@ def generate_proactive(trigger_type: str, context: dict = None):
 
     # ─── 主动风格设置 ───
     style = get_config("proactive_style", "warm")
-    style_hint = ""
-    if style == "humorous":
-        style_hint = "语气可以幽默一点，带点俏皮。"
+    if style == "warm":
+        style_hint = "语气要温暖、关心，像朋友一样。先问候或关心对方近况，自然引入话题。"
+    elif style == "humorous":
+        style_hint = "语气可以幽默一点，带点俏皮，让人会心一笑。"
     elif style == "concise":
-        style_hint = "务必简短，控制在10字以内。"
+        style_hint = "务必简短，控制在15字以内，直接说重点。"
+    elif style == "free":
+        # 自由风格回退到通知风格的语气
+        ns_map = {"warm": "语气要温暖、关心", "casual": "语气随意、口语化", "humorous": "语气幽默俏皮", "concise": "务必简短，15字以内", "tsundere": "语气傲娇，口是心非，表面冷淡实则关心", "free": ""}
+        style_hint = ns_map.get(notify_style, "")
 
     # ─── 构建 prompt（system=人设+风格指令, user=情境+任务）───
     system_parts = [personality_part]
@@ -378,6 +436,8 @@ def generate_proactive(trigger_type: str, context: dict = None):
         system_parts.append(trait_hint)
     if style_hint:
         system_parts.append(style_hint)
+    if weather_context:
+        system_parts.append(weather_context)
     system_prompt = "\n".join(system_parts)
 
     user_parts = []
@@ -387,11 +447,15 @@ def generate_proactive(trigger_type: str, context: dict = None):
         user_parts.append(f"用户近期情绪：{emotion_summary}")
     user_parts.append(time_context)
     user_parts.append(idle_desc)
-    user_parts.append(f"请用一句简短自然的话（10-20字）主动对{user_name}说话。{trigger_instruction}。直接说内容，别加动作描写。")
+    user_parts.append(f"你现在想主动对{user_name}说句话。不用把所有信息都用上——从你知道的事情里挑一两个最自然的点带进去就好。语气轻松随意，像朋友一样。{trigger_instruction}。一句话就够了，别啰嗦，别加动作描写。")
     user_prompt = "\n".join(user_parts)
 
     from core.llm_client import call_llm
-    result = call_llm(prompt=user_prompt, system=system_prompt, temperature=0.8, max_tokens=80, timeout=10)
+    result = None
+    for _attempt in range(2):
+        result = call_llm(prompt=user_prompt, system=system_prompt, temperature=0.8, max_tokens=80, timeout=25)
+        if result:
+            break
     if result:
         return result
     print(f"[主动] LLM 返回空")

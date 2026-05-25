@@ -179,12 +179,29 @@ def process_daily_evolution():
     # ─── 规则4: 互动质量驱动的 trait 微调 ───
     _rule_interaction_quality()
 
+    # ─── 规则5: 每日互动 → expressiveness 微增（让用户感知系统在运行）───
+    try:
+        from core.emotion_tracker import get_emotion_trend
+        today_trend = get_emotion_trend(1)
+        if today_trend and today_trend[0]["total_messages"] > 0:
+            update_trait("expressiveness", 0.01)
+            print(f"[情绪演化] 今日互动 → expressiveness+0.01")
+    except Exception:
+        pass
+
     # ─── 规则5: 周日反思 ───
     if datetime.now().weekday() == 6:
         _rule_weekly_reflection()
 
     # 规则执行完毕后再写日期
     _set_last_evolution_date(today)
+    # 清理 90 天前的旧日志，防止无限膨胀
+    try:
+        from core.db import get_conn
+        with get_conn() as conn:
+            conn.cursor().execute("DELETE FROM emotion_log WHERE timestamp < date('now', '-90 days')")
+    except Exception:
+        pass
     print(f"[情绪演化] 每日演化完成")
 
 
@@ -231,6 +248,7 @@ def _check_sustained_low_mood():
         existing = get_proactive_flag("sustained_low_mood")
         if existing:
             set_proactive_flag("sustained_low_mood", "")
+            set_proactive_flag("low_mood_consecutive_days", "")
             print(f"[情绪演化] 情绪已恢复，清除持续低落标记")
 
 
@@ -274,67 +292,64 @@ def _rule_silence_decay(hours_since: float | None):
 
 
 def _rule_cold_adaptation():
-    """冷淡适应：连续 7 天用户情绪偏负面 → optimism -0.1，expressiveness -0.05"""
+    """冷淡适应：用户情绪偏负面占比高 → optimism -0.05，expressiveness -0.03"""
     from core.emotion_tracker import get_emotion_trend
     trend = get_emotion_trend(7)
-    if len(trend) < 5:
+    if len(trend) < 2:
         return
 
     negative_days = sum(1 for d in trend if d["score"] < -5)
-    if negative_days < 7 and len(trend) < 7:
-        return
-
-    # 计算负面占比
-    neg_ratio = negative_days / len(trend)
-    if neg_ratio > 0.7:
-        update_trait("optimism", -0.1)
-        update_trait("expressiveness", -0.05)
+    total_days = len(trend)
+    neg_ratio = negative_days / total_days if total_days > 0 else 0
+    if neg_ratio > 0.5:
+        update_trait("optimism", -0.05)
+        update_trait("expressiveness", -0.03)
         _log_evolution_event(
             "autonomous_adaptation",
-            f"用户连续{negative_days}天情绪负面（占比{neg_ratio:.0%}），AI进入自我保护状态，乐观度-0.1",
+            f"用户{negative_days}天情绪负面（占比{neg_ratio:.0%}），AI进入自我保护状态，乐观度-0.05",
             0, 0
         )
-        print(f"[情绪演化] 冷淡适应: 负面占比{neg_ratio:.0%} → optimism-0.1")
+        print(f"[情绪演化] 冷淡适应: 负面占比{neg_ratio:.0%} → optimism-0.05")
 
 
 def _rule_habitual_closeness():
-    """习惯亲近：连续 30 天每天有互动 → trust +0.05/天（缓慢积累）"""
+    """习惯亲近：近期频繁互动 → 信任缓慢积累"""
     from core.emotion_tracker import get_emotion_trend
-    trend = get_emotion_trend(30)
-    if len(trend) < 21:  # 至少21天数据才判断
+    trend = get_emotion_trend(7)
+    if len(trend) < 3:
         return
 
     active_days = sum(1 for d in trend if d["total_messages"] > 0)
-    if active_days >= 28:  # 28天以上有互动
+    if active_days >= 3:
         _update_relationship_value("trust", 0.05)
         _log_evolution_event(
             "habitual_closeness",
-            f"连续{active_days}天有互动，习惯成自然，信任+0.05",
+            f"近{len(trend)}天有{active_days}天互动，习惯成自然，信任+0.05",
             0, 0.05
         )
-        print(f"[情绪演化] 习惯亲近: {active_days}/30天有互动 → trust+0.05")
+        print(f"[情绪演化] 习惯亲近: {active_days}/{len(trend)}天有互动 → trust+0.05")
 
 
 def _rule_interaction_quality():
-    """互动质量驱动的 trait 微调：基于最近30天的互动模式"""
+    """互动质量驱动的 trait 微调：基于最近交互模式"""
     from core.emotion_tracker import get_emotion_trend
-    trend = get_emotion_trend(30)
-    if len(trend) < 10:
+    trend = get_emotion_trend(14)
+    if len(trend) < 2:
         return
 
     positive_days = sum(1 for d in trend if d["score"] > 5)
     total_days = len(trend)
-    positive_ratio = positive_days / total_days
+    positive_ratio = positive_days / total_days if total_days > 0 else 0
 
     # 正面互动多 → 提升 playfulness 和 optimism
-    if positive_ratio > 0.6:
+    if positive_ratio > 0.5:
         update_trait("playfulness", 0.03)
         update_trait("optimism", 0.02)
         print(f"[情绪演化] 正面互动占比{positive_ratio:.0%} → playfulness+0.03 optimism+0.02")
 
     # 用户发消息多 → 提升 expressiveness
     avg_msgs = sum(d["total_messages"] for d in trend) / total_days
-    if avg_msgs > 20:
+    if avg_msgs > 5:
         update_trait("expressiveness", 0.02)
         print(f"[情绪演化] 日均{avg_msgs:.0f}条消息 → expressiveness+0.02")
 

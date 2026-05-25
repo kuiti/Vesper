@@ -42,9 +42,11 @@ async def get_all_settings() -> Dict[str, Any]:
         "auto_cleanup_days": get_config("auto_cleanup_days", 30),
         "default_city": get_config("default_city", ""),
         "has_amap_key": bool(get_config("amap_key", "")),
+        "amap_key": get_config("amap_key", ""),
         "user_name": get_config("user_name", "我"),
         "ai_name": get_config("ai_name", "佐仓"),
         "precise_city": get_config("precise_city", ""),
+        "manual_city": get_config("manual_city", ""),
         "primary_color": get_config("primary_color", "#6a9fd8"),
         "bg_color": get_config("bg_color", "#0f1119"),
         "sidebar_bg": get_config("sidebar_bg", "#161927"),
@@ -70,6 +72,9 @@ async def get_all_settings() -> Dict[str, Any]:
         "pin_enabled": get_config("pin_enabled", False),
         "pin_code": get_config("pin_code", ""),
         "quick_phrases": get_config("quick_phrases", "[]"),
+        "snake_high": get_config("snake_high", 0),
+        "2048_best": get_config("2048_best", 0),
+        "minesweeper_wins": get_config("minesweeper_wins", 0),
     }
 
 @router.post("/relationship-mode")

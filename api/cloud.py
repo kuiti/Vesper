@@ -29,7 +29,14 @@ async def get_cloud_config():
 
 @router.post("/config")
 async def save_cloud_config(cfg: CloudConfig):
-    set_config("cloud_config", cfg.model_dump())
+    config_dict = cfg.model_dump()
+    passphrase = config_dict.pop("passphrase", None)
+    if passphrase:
+        from core.crypto import derive_key
+        key, salt = derive_key(passphrase)
+        config_dict["passphrase_salt"] = salt.hex()
+        config_dict["passphrase_key"] = key.hex()
+    set_config("cloud_config", config_dict)
     return {"status": "ok"}
 
 
@@ -43,7 +50,7 @@ async def sync_status():
 
 
 @router.post("/upload")
-async def upload_backup():
+async def upload_backup(passphrase: str = ""):
     cfg = get_config("cloud_config", {})
     if not cfg:
         return {"status": "error", "message": "请先配置云端后端"}
@@ -54,9 +61,10 @@ async def upload_backup():
         backend = get_backend(cfg.get("backend_type", "webdav"), cfg)
 
         data = json.dumps(_collect_export_data(), ensure_ascii=False)
-        if cfg.get("passphrase"):
+        pp = passphrase or cfg.get("passphrase", "")
+        if pp:
             from core.crypto import encrypt_data, derive_key
-            key, salt = derive_key(cfg["passphrase"])
+            key, salt = derive_key(pp)
             encrypted = encrypt_data(data, key)
             payload = salt + encrypted.encode()
         else:
@@ -73,7 +81,7 @@ async def upload_backup():
 
 
 @router.post("/download")
-async def download_backup(filename: str = ""):
+async def download_backup(filename: str = "", passphrase: str = ""):
     cfg = get_config("cloud_config", {})
     if not cfg:
         return {"status": "error", "message": "请先配置云端后端"}
@@ -86,10 +94,11 @@ async def download_backup(filename: str = ""):
             filename = "vesper_backup_latest.enc"
 
         raw = await asyncio.to_thread(backend.download, filename)
-        if cfg.get("passphrase"):
+        pp = passphrase or cfg.get("passphrase", "")
+        if pp:
             from core.crypto import decrypt_data, derive_key
             salt, encrypted = raw[:16], raw[16:]
-            key, _ = derive_key(cfg["passphrase"], salt)
+            key, _ = derive_key(pp, salt)
             data = decrypt_data(encrypted.decode(), key)
         else:
             data = raw.decode()

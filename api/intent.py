@@ -134,19 +134,19 @@ def build_weather_text(casts: list) -> str:
         return "暂无天气数据"
 
     if 5 <= hour < 12:
-        text = f"今天（{today['date']}）白天{today['dayweather']}，温度{today['daytemp']}°C，夜间{today['nightweather']}，温度{today['nighttemp']}°C，{today['daywind']}风{today['daypower']}级。"
+        text = f"今天（{today['date']}）白天{today['dayweather']}，温度{today['daytemp']}度，夜间{today['nightweather']}，温度{today['nighttemp']}度，{today['daywind']}风{today['daypower']}级。"
         if tomorrow:
-            text += f"明天（{tomorrow['date']}）白天{tomorrow['dayweather']}，温度{tomorrow['daytemp']}°C，夜间{tomorrow['nightweather']}，温度{tomorrow['nighttemp']}°C。"
+            text += f"明天（{tomorrow['date']}）白天{tomorrow['dayweather']}，温度{tomorrow['daytemp']}度，夜间{tomorrow['nightweather']}，温度{tomorrow['nighttemp']}度。"
     elif 12 <= hour < 18:
-        text = f"今天下午到夜间{today['nightweather']}，温度{today['nighttemp']}°C。"
+        text = f"今天下午到夜间{today['nightweather']}，温度{today['nighttemp']}度。"
         if tomorrow:
-            text += f"明天（{tomorrow['date']}）白天{tomorrow['dayweather']}，温度{tomorrow['daytemp']}°C，夜间{tomorrow['nightweather']}，温度{tomorrow['nighttemp']}°C。"
+            text += f"明天（{tomorrow['date']}）白天{tomorrow['dayweather']}，温度{tomorrow['daytemp']}度，夜间{tomorrow['nightweather']}，温度{tomorrow['nighttemp']}度。"
     else:
-        text = f"今晚{today['nightweather']}，温度{today['nighttemp']}°C。"
+        text = f"今晚{today['nightweather']}，温度{today['nighttemp']}度。"
         if tomorrow:
-            text += f"明天（{tomorrow['date']}）白天{tomorrow['dayweather']}，温度{tomorrow['daytemp']}°C，夜间{tomorrow['nightweather']}，温度{tomorrow['nighttemp']}°C。"
+            text += f"明天（{tomorrow['date']}）白天{tomorrow['dayweather']}，温度{tomorrow['daytemp']}度，夜间{tomorrow['nightweather']}，温度{tomorrow['nighttemp']}度。"
         if after_tomorrow:
-            text += f"后天（{after_tomorrow['date']}）{after_tomorrow['dayweather']}，{after_tomorrow['daytemp']}°C~{after_tomorrow['nighttemp']}°C。"
+            text += f"后天（{after_tomorrow['date']}）{after_tomorrow['dayweather']}，{after_tomorrow['daytemp']}度~{after_tomorrow['nighttemp']}度。"
     return text
 
 def web_search(query: str) -> str:
@@ -234,7 +234,7 @@ NEWS_PATTERNS = [
     r"最近.*新闻", r"今天.*新闻", r"最新.*消息", r"最新.*新闻",
     r"有什么.*新闻", r"有什么.*大事", r"发生.*什么",
     r"最近.*发生", r"热点", r"头条",
-    r"最近.*怎么样", r"最近.*如何",
+    r"最近.*新闻.*如何",
     r"现在.*什么.*最.*[新火热]", r"今天.*大事",
     r"告诉我.*最近", r"最近.*知道",
     r"现实.*新闻", r"外面.*发生",
@@ -257,7 +257,7 @@ FUZZY_KNOWLEDGE_PATTERNS = [
 
 def _is_emotional_question(msg: str) -> bool:
     """检测是否为情感/关系类问题（不应触发搜索）"""
-    emotional_markers = ["不理我", "你生气", "你难过", "你不开心", "你喜欢我", "你是不是", "你怎么了", "你在吗", "你爱我", "你想我"]
+    emotional_markers = ["不理我", "你生气", "你难过", "你不开心", "你喜欢我", "你是不是", "你怎么了", "你在吗", "你爱我", "你想我", "你怎么样", "最近怎么样", "最近咋样", "最近好吗", "最近如何", "你好吗", "你还好吗", "你还好吧", "你咋样", "在干嘛", "在做什么", "最近忙", "想你了"]
     return any(m in msg for m in emotional_markers)
 
 def match_any(msg: str, patterns: list) -> bool:
@@ -278,7 +278,7 @@ def extract_search_query(msg: str, prefixes: list) -> str:
 def detect_intent(user_message: str) -> tuple:
     # 天气
     if match_any(user_message, WEATHER_PATTERNS):
-        city = get_config("precise_city") or get_city_by_ip() or get_config("default_city") or "北京"
+        city = get_config("precise_city") or get_config("manual_city") or get_city_by_ip() or get_config("default_city") or "北京"
         # 1. 尝试 Open-Meteo 全面数据（免费，无需 key）
         coords = get_city_coords(city)
         if coords:
@@ -288,7 +288,7 @@ def detect_intent(user_message: str) -> tuple:
                 if om.get("weather"):
                     parts.append(om['weather'])
                 if om.get("temp") is not None:
-                    parts.append(f"{om['temp']}°C")
+                    parts.append(f"{om['temp']}度")
                 # 最多追加 3 个额外字段，按优先级
                 extras = []
                 if om.get("precipitation", 0) > 0:
@@ -296,7 +296,7 @@ def detect_intent(user_message: str) -> tuple:
                 if om.get("wind_speed") is not None:
                     extras.append(f"{wind_direction_name(om.get('wind_direction'))}风{om['wind_speed']}km/h")
                 if om.get("feels_like") is not None and abs(om["feels_like"] - om.get("temp", 0)) > 3:
-                    extras.append(f"体感{om['feels_like']}°C")
+                    extras.append(f"体感{om['feels_like']}度")
                 if om.get("humidity") is not None:
                     extras.append(f"湿度{om['humidity']}%")
                 parts.extend(extras[:3])
@@ -304,7 +304,7 @@ def detect_intent(user_message: str) -> tuple:
                 if om.get("daily") and len(om["daily"]) > 1:
                     d = om["daily"][1]
                     dname = d["date"][-5:] if d.get("date") else "明天"
-                    parts.append(f"{dname} {d.get('weather','')} {d.get('temp_min','')}~{d.get('temp_max','')}°C")
+                    parts.append(f"{dname} {d.get('weather','')} {d.get('temp_min','')}~{d.get('temp_max','')}度")
                 weather_text = "，".join(parts)
                 return ("weather", {"city": coords.get("name", city), "text": weather_text})
         # 2. 回退 Amap
@@ -316,7 +316,7 @@ def detect_intent(user_message: str) -> tuple:
             return ("weather", {"city": city, "text": weather_text})
         if live:
             l = live
-            return ("weather", {"city": city, "text": f"今天{l.get('weather','未知')}，温度{l.get('temperature','?')}°C，{l.get('winddirection','')}风{l.get('windpower','?')}级，湿度{l.get('humidity','?')}%"})
+            return ("weather", {"city": city, "text": f"今天{l.get('weather','未知')}，温度{l.get('temperature','?')}度，{l.get('winddirection','')}风{l.get('windpower','?')}级，湿度{l.get('humidity','?')}%"})
 
     # 位置
     if match_any(user_message, LOCATION_PATTERNS):

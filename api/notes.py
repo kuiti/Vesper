@@ -9,6 +9,10 @@ class NoteCreate(BaseModel):
     title: str
     content: str
 
+class NoteUpdate(BaseModel):
+    title: str = ""
+    content: str = ""
+
 class NoteOut(BaseModel):
     id: int
     title: str
@@ -22,6 +26,26 @@ async def list_notes():
 @router.post("/")
 async def create_note(note: NoteCreate):
     add_note(note.title, note.content)
+    return {"status": "ok"}
+
+@router.patch("/{note_id}")
+async def update_note(note_id: int, note: NoteUpdate):
+    from core.db import get_conn
+    from fastapi import HTTPException
+    with get_conn() as conn:
+        c = conn.cursor()
+        updates = {}
+        if note.title:
+            updates["title"] = note.title
+        if note.content:
+            updates["content"] = note.content
+        if not updates:
+            raise HTTPException(400, "没有需要更新的字段")
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [note_id]
+        c.execute(f"UPDATE notes SET {sets} WHERE id = ?", vals)
+        if c.rowcount == 0:
+            raise HTTPException(404, "笔记不存在")
     return {"status": "ok"}
 
 @router.delete("/{note_id}")

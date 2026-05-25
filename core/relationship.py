@@ -55,7 +55,7 @@ def get_ai_emotion() -> str:
         return "content"
     elif affection >= 35 and trust >= 35:
         return "neutral"
-    elif affection >= 25 or trust >= 30:
+    elif affection >= 25 and trust >= 30:
         return "cautious"
     elif affection < 20 and trust < 20:
         return "distrustful"
@@ -82,16 +82,57 @@ def _get_current_value(key: str) -> float:
 
 def _progressive_multiplier(current: float) -> float:
     """渐进式关系乘数。模拟人类社交：初期慢热，中后期加速，近上限微减速。"""
-    if current < 20:
+    if current < 10:
+        return 0.3
+    elif current < 20:
         return 0.45
-    elif current < 45:
-        return 0.7
+    elif current < 35:
+        return 0.65
+    elif current < 50:
+        return 0.85
     elif current < 65:
         return 1.0
-    elif current < 85:
+    elif current < 80:
+        return 1.15
+    elif current < 90:
         return 1.2
     else:
-        return 1.1
+        return 1.05
+
+
+def _cross_multiplier(key: str) -> float:
+    """双向牵制乘数：信任越高好感长得越快，好感越高信任越快，反之亦然。"""
+    affection, trust = get_relationship()
+    if key == "affection":
+        if trust >= 85:
+            return 1.8
+        elif trust >= 70:
+            return 1.5
+        elif trust >= 55:
+            return 1.2
+        elif trust >= 40:
+            return 1.0
+        elif trust >= 25:
+            return 0.8
+        elif trust >= 15:
+            return 0.6
+        else:
+            return 0.4
+    else:
+        if affection >= 80:
+            return 1.8
+        elif affection >= 65:
+            return 1.5
+        elif affection >= 50:
+            return 1.2
+        elif affection >= 35:
+            return 1.0
+        elif affection >= 20:
+            return 0.8
+        elif affection >= 10:
+            return 0.6
+        else:
+            return 0.4
 
 
 # 长久模式参数
@@ -134,6 +175,7 @@ def _update_value(key: str, delta: float) -> float:
 
     current = _get_current_value(key)
     delta *= _progressive_multiplier(current)
+    delta *= _cross_multiplier(key)
 
     mode = get_config("relationship_mode", "fast")
     if mode == "long_term":
@@ -264,10 +306,12 @@ def adjust_relationship(sentiment_result: dict = None, hours_since_last: float =
         trust_delta -= 1.0
         t_reasons.append("明确攻击AI")
 
-    # 分享个人信息 = 信任增加
+    # 分享个人信息 = 信任+好感都增加
     if intent == "sharing":
         trust_delta += 0.3
+        affection_delta += 0.15
         t_reasons.append("分享个人信息")
+        a_reasons.append("分享个人信息，拉近距离")
 
     # 开玩笑 = 关系好才开玩笑
     if intent == "joke":
@@ -280,10 +324,11 @@ def adjust_relationship(sentiment_result: dict = None, hours_since_last: float =
         affection_delta += decay
         a_reasons.append(f"长时间未聊天({hours_since_last:.0f}h)")
 
-    # ─── 连续正常交流 → 信任缓慢积累 ───
+    # ─── 正常交流 → 信任和好感都缓慢积累 ───
     sentiment = sentiment_result.get("sentiment", "neutral")
     if sentiment in ("neutral", "positive"):
         trust_delta += 0.1
+        affection_delta += 0.05
 
     actual_a = _update_value("affection", affection_delta)
     actual_t = _update_value("trust", trust_delta)

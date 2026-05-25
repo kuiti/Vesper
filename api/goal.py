@@ -29,6 +29,33 @@ async def goal_update_status(goal_id: int, data: dict):
     return {"ok": True, "id": goal_id, "status": new_status}
 
 
+@router.post("/create")
+async def goal_create(data: dict):
+    """创建新目标"""
+    title = (data or {}).get("title", "")
+    if not title.strip():
+        from fastapi import HTTPException
+        raise HTTPException(400, "目标不能为空")
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "INSERT INTO goal_tracking (goal_text, status, first_mentioned, last_mentioned) VALUES (?, 'active', datetime('now'), datetime('now'))",
+            (title.strip(),)
+        )
+    return {"ok": True}
+
+
+@router.delete("/{goal_id}")
+async def goal_delete(goal_id: int):
+    """删除目标"""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM goal_tracking WHERE id=?", (goal_id,))
+        if c.rowcount == 0:
+            from fastapi import HTTPException
+            raise HTTPException(404, "目标不存在")
+    return {"ok": True}
+
+
 @router.get("/stats")
 async def goal_stats():
     """目标统计"""

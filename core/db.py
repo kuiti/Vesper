@@ -186,10 +186,27 @@ def _ensure_db():
             value TEXT,
             updated_at TEXT
         )""")
-        # FTS5 全文搜索
+        # 日程表
+        cursor.execute('''CREATE TABLE IF NOT EXISTS schedule (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT DEFAULT '', start_time TEXT, end_time TEXT DEFAULT '', location TEXT DEFAULT '', all_day INTEGER DEFAULT 0, color TEXT DEFAULT '#5390d4')''')
+        # 亡语表
+        cursor.execute('''CREATE TABLE IF NOT EXISTS death_archive (id INTEGER PRIMARY KEY AUTOINCREMENT, original_id INTEGER, level INTEGER NOT NULL, summary TEXT NOT NULL, key_points TEXT, importance REAL, start_time TEXT, end_time TEXT, created_at TEXT, archived_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
+        # 互动成就表
+        cursor.execute('''CREATE TABLE IF NOT EXISTS achievements (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE, name TEXT, description TEXT, unlocked_at TEXT)''')
+        # AI日记表
+        cursor.execute('''CREATE TABLE IF NOT EXISTS ai_diary (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT UNIQUE, content TEXT, mood TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
+        # FTS5 全文搜索（无内容模式：触发器手动同步，支持单条删除）
         cursor.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts USING fts5(
-            content, content_rowid='id', content='chat_history'
+            content, content_rowid='id'
         )""")
+        # 迁移旧版外部内容表（content='chat_history'）→ 无内容模式
+        try:
+            cursor.execute("INSERT INTO chat_fts(chat_fts) VALUES('optimize')")
+        except Exception:
+            cursor.execute("DROP TABLE IF EXISTS chat_fts")
+            cursor.execute("""CREATE VIRTUAL TABLE chat_fts USING fts5(
+                content, content_rowid='id'
+            )""")
+            cursor.execute("INSERT INTO chat_fts(rowid, content) SELECT id, content FROM chat_history")
         # FTS5 同步触发器
         cursor.execute("""CREATE TRIGGER IF NOT EXISTS chat_ai AFTER INSERT ON chat_history BEGIN
             INSERT INTO chat_fts(rowid, content) VALUES (new.id, new.content);
@@ -583,9 +600,10 @@ def search_chat_messages(keyword: str, limit: int = 20):
         # FTS5 MATCH 不支持标准参数化查询，必须手动转义双引号防止注入和语法错误
         safe_keyword = '"' + keyword.strip().replace('"', '""') + '"'
         cursor.execute('''
-            SELECT rowid, content, role, timestamp,
+            SELECT f.rowid, f.content, h.role, h.timestamp,
                    snippet(chat_fts, 0, '<mark>', '</mark>', '...', 40) as snippet
-            FROM chat_fts
+            FROM chat_fts f
+            JOIN chat_history h ON h.id = f.rowid
             WHERE chat_fts MATCH ?
             ORDER BY rank
             LIMIT ?
@@ -1229,7 +1247,7 @@ def get_proactive_response_rate(days: int = 14) -> float:
         row = cursor.fetchone()
         total = row["total"] if row else 0
         if total == 0:
-            return 0.5  # 无数据时默认中等回复率
+            return 0.25  # 无数据时默认偏低回复率，避免新用户冷却过短
         return row["responded"] / total if total else 0.5
 
 

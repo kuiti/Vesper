@@ -55,11 +55,13 @@ def get_collection(collection_name="chat_memory"):
     if _client_cache is None:
         import chromadb
         _client_cache = chromadb.PersistentClient(path=CHROMA_PATH)
-    return _client_cache.get_or_create_collection(
-        name=collection_name,
-        # 余弦距离用于语义搜索：文本嵌入方向比欧氏距离更准确反映语义相似度
-        metadata={"hnsw:space": "cosine"}
-    )
+    try:
+        return _client_cache.get_collection(collection_name)
+    except Exception:
+        return _client_cache.create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"}
+        )
 
 def add_message_vector(msg_id: str, text: str, metadata: dict = None):
     if not is_model_ready():
@@ -80,6 +82,26 @@ def add_message_vector(msg_id: str, text: str, metadata: dict = None):
     except Exception as e:
         warnings.warn(f"向量索引失败（{msg_id}）：{str(e)}")
 
+_bm25 = None
+_bm25_docs = None
+
+def _get_bm25():
+    global _bm25, _bm25_docs
+    try:
+        col = get_collection()
+        data = col.get(include=["documents"])
+        docs = data.get("documents", [])
+        if not docs:
+            return None
+        if _bm25_docs is not docs:
+            from rank_bm25 import BM25Okapi
+            tokenized = [d.split() for d in docs]
+            _bm25 = BM25Okapi(tokenized)
+            _bm25_docs = docs
+        return _bm25
+    except Exception:
+        return None
+
 def search_similar(query: str, top_k: int = 3):
     if not is_model_ready():
         return []
@@ -87,16 +109,39 @@ def search_similar(query: str, top_k: int = 3):
         model = get_embedding_model()
         query_emb = model.encode(query).tolist()
         collection = get_collection()
+        # 向量检索取 top_k * 3，再用 BM25 重排序
         results = collection.query(
             query_embeddings=[query_emb],
-            n_results=top_k,
+            n_results=min(top_k * 3, 20),
             include=["documents", "distances"]
         )
-        if results and results['documents'] and results['documents'][0]:
-            docs = results['documents'][0]
-            distances = results['distances'][0] if results['distances'] else []
-            return list(zip(docs, distances))
-        return []
+        if not results or not results['documents'] or not results['documents'][0]:
+            return []
+
+        docs = results['documents'][0]
+        distances = results['distances'][0] if results['distances'] else []
+        candidates = list(zip(docs, distances))
+
+        # BM25 混合排序
+        bm25 = _get_bm25()
+        if bm25:
+            tokenized_query = query.split()
+            bm25_scores = bm25.get_scores(tokenized_query)
+            bm25_max = max(bm25_scores) if len(bm25_scores) > 0 and max(bm25_scores) > 0 else 1
+            scored = []
+            for doc, dist in candidates:
+                cos_score = 1.0 - (dist / 2.0)
+                try:
+                    idx = _bm25_docs.index(doc) if _bm25_docs else -1
+                    bm25_norm = (bm25_scores[idx] / bm25_max) if idx >= 0 and idx < len(bm25_scores) else 0
+                except (ValueError, IndexError):
+                    bm25_norm = 0
+                hybrid = 0.7 * cos_score + 0.3 * bm25_norm
+                scored.append((doc, dist, hybrid))
+            scored.sort(key=lambda x: -x[2])
+            return [(doc, dist) for doc, dist, _ in scored[:top_k]]
+
+        return candidates[:top_k]
     except Exception as e:
         print(f"[向量搜索] 查询失败: {e}")
         return []
@@ -154,7 +199,7 @@ def rebuild_all_vectors(progress_callback=None):
                 end = min(i + batch_size, len(all_data['ids']))
                 new_collection.upsert(
                     ids=all_data['ids'][i:end],
-                    embeddings=all_data['embeddings'][i:end] if all_data['embeddings'] else None,
+                    embeddings=all_data['embeddings'][i:end] if len(all_data['embeddings']) > 0 else None,
                     metadatas=all_data['metadatas'][i:end] if all_data['metadatas'] else None,
                     documents=all_data['documents'][i:end] if all_data['documents'] else None
                 )
@@ -163,6 +208,8 @@ def rebuild_all_vectors(progress_callback=None):
         except Exception as e:
             print(f"[向量] 清理临时集合失败: {e}")
         print(f"[向量重建] 完成，共 {total} 条消息")
+        global _client_cache
+        _client_cache = None
     finally:
         _rebuild_lock.release()
 

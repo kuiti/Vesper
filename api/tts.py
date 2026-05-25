@@ -171,15 +171,18 @@ async def generate_tts(request: TTSRequest):
             if not chunks:
                 chunks = [clean_text]
 
-            tmpdir = Path(tempfile.gettempdir())
-            chunk_paths = []
-            for i, chunk in enumerate(chunks):
-                cp = tmpdir / f"sakura_tts_{uuid.uuid4().hex}.wav"
-                _tts_chunk(genie, character, chunk, str(cp))
-                chunk_paths.append(str(cp))
+            def _gen():
+                tmpdir = Path(tempfile.gettempdir())
+                chunk_paths = []
+                for i, chunk in enumerate(chunks):
+                    cp = tmpdir / f"sakura_tts_{uuid.uuid4().hex}.wav"
+                    _tts_chunk(genie, character, chunk, str(cp))
+                    chunk_paths.append(str(cp))
+                output_path = tmpdir / f"sakura_tts_{uuid.uuid4().hex}.wav"
+                _concat_wavs(chunk_paths, str(output_path))
+                return chunk_paths, output_path
 
-            output_path = tmpdir / f"sakura_tts_{uuid.uuid4().hex}.wav"
-            _concat_wavs(chunk_paths, str(output_path))
+            chunk_paths, output_path = await asyncio.to_thread(_gen)
 
             # Cleanup chunks
             for cp in chunk_paths:
